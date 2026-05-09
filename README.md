@@ -1,5 +1,9 @@
 # jellyfin_seerr_loading_screen
 
+[![Python (jslsd)](https://github.com/Petr1t/jellyfin_seerr_loading_screen/actions/workflows/python.yml/badge.svg)](https://github.com/Petr1t/jellyfin_seerr_loading_screen/actions/workflows/python.yml)
+[![.NET Plugin](https://github.com/Petr1t/jellyfin_seerr_loading_screen/actions/workflows/dotnet.yml/badge.svg)](https://github.com/Petr1t/jellyfin_seerr_loading_screen/actions/workflows/dotnet.yml)
+[![License: GPL v2](https://img.shields.io/badge/License-GPL_v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
+
 > Show Sonarr/Radarr pending downloads as Jellyfin library items with live progress.
 
 When you request a movie or TV show via Jellyseerr, it disappears into a black box until the download finishes. This project surfaces that gap: you see the requested item show up immediately in Jellyfin, with a progress bar overlaid on its poster, an ETA based on the qBittorrent queue, and the option to cancel/pause from the Jellyfin UI itself.
