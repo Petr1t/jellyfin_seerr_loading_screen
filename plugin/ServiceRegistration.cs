@@ -2,12 +2,11 @@ using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 
-using Jellyfin.Plugin.SeerrLoadingScreen.Services;
-
 namespace Jellyfin.Plugin.SeerrLoadingScreen;
 
 /// <summary>
-/// Registers DaemonClient with Jellyfin's DI container.
+/// Registers the DaemonClient (typed HTTP client) with Jellyfin's DI container.
+/// The IChannel implementation is auto-discovered by Jellyfin via assembly scan.
 /// </summary>
 public class ServiceRegistration : IPluginServiceRegistrator
 {
