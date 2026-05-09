@@ -1,0 +1,21 @@
+[
+  {
+    "guid": "4f2c0e3a-9b4d-4f7c-9a31-2d6e8f1b5c0a",
+    "name": "Seerr Loading Screen",
+    "description": "Show Sonarr/Radarr pending downloads as Jellyfin library items with live progress.",
+    "overview": "Surfaces Jellyseerr-requested media via Sonarr/Radarr queue as a browseable Jellyfin channel with progress overlays. Backed by a small Python side-car daemon (jslsd) that polls the Arr APIs.",
+    "owner": "Petr1t",
+    "category": "General",
+    "imageUrl": "https://raw.githubusercontent.com/Petr1t/jellyfin_seerr_loading_screen/main/assets/posters/sample-downloading-65pct.png",
+    "versions": [
+      {
+        "version": "0.2.0.0",
+        "changelog": "v0.2.0: implemented IChannel for browseable virtual library. Pending Sonarr/Radarr downloads now appear as a Jellyfin channel with progress posters. Native iOS/Android/tvOS support via baked PNG overlays.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Petr1t/jellyfin_seerr_loading_screen/releases/download/v0.2.0/Jellyfin.Plugin.SeerrLoadingScreen-0.2.0.zip",
+        "checksum": "a1c0f24f21eadfbcfa167a438a2e76f8",
+        "timestamp": "2026-05-09T16:12:36.0000000Z"
+      }
+    ]
+  }
+]
