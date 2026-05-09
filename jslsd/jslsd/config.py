@@ -43,6 +43,8 @@ class Config(BaseModel):
     completed_retention_seconds: int = 300
     failed_retention_seconds: int = 3600
 
+    demo_mode: bool = False
+
     @classmethod
     def load(cls, path: Path | None = None) -> Config:
         """Load config from path or default locations, then apply env overrides."""

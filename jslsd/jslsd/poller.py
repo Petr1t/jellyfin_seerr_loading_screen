@@ -68,6 +68,9 @@ class Poller:
         return str((self.config.poster_cache_dir / cache_key).absolute())
 
     async def start(self) -> None:
+        if self.config.demo_mode:
+            log.info("Demo mode — skipping poller, using injected cache items")
+            return
         if self._task is None:
             self._task = asyncio.create_task(self._run(), name="jslsd-poller")
             log.info("Poller started, interval=%ss", self.config.poll_interval_seconds)
