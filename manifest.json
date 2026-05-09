@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/Petr1t/jellyfin_seerr_loading_screen/main/assets/posters/sample-downloading-65pct.png",
     "versions": [
       {
+        "version": "0.2.1.0",
+        "changelog": "Fix: register IChannel in DI container so Jellyfin actually discovers and lists the channel. Verified end-to-end on a live Jellyfin 10.11.8 server. Adds --demo flag to the daemon for first-run preview.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Petr1t/jellyfin_seerr_loading_screen/releases/download/v0.2.1/Jellyfin.Plugin.SeerrLoadingScreen-0.2.1.zip",
+        "checksum": "950c9cd2737607c2e9507d44ca5a0768",
+        "timestamp": "2026-05-09T16:25:25.0000000Z"
+      },
+      {
         "version": "0.2.0.0",
         "changelog": "v0.2.0: implemented IChannel for browseable virtual library. Pending Sonarr/Radarr downloads now appear as a Jellyfin channel with progress posters. Native iOS/Android/tvOS support via baked PNG overlays.",
         "targetAbi": "10.11.0.0",
