@@ -60,8 +60,8 @@ async def test_sonarr_queue_parsing(sonarr_config: ArrConfig) -> None:
         return_value=httpx.Response(200, json=SONARR_SERIES_FIXTURE)
     )
 
-    async with SonarrClient(sonarr_config) as client:
-        records = await client.queue()
+    async with httpx.AsyncClient() as http:
+        records = await SonarrClient(sonarr_config, http).queue()
 
     assert len(records) == 1
     record = records[0]
@@ -139,8 +139,8 @@ async def test_radarr_queue_includes_movie_inline(sonarr_config: ArrConfig) -> N
         return_value=httpx.Response(200, json=queue_fixture)
     )
 
-    async with RadarrClient(sonarr_config) as client:
-        records = await client.queue()
+    async with httpx.AsyncClient() as http:
+        records = await RadarrClient(sonarr_config, http).queue()
 
     assert len(records) == 1
     assert records[0].media == movie_inline

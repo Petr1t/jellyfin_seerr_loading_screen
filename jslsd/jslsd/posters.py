@@ -47,7 +47,7 @@ class PosterGenerator:
         title: str,
     ) -> Path:
         bucket = int(progress_percent // 5) * 5
-        cache_key = f"{_safe_id(item_id)}__p{bucket:03d}__{status}.png"
+        cache_key = f"{safe_filename_id(item_id)}__p{bucket:03d}__{status}.png"
         out_path = self.cache_dir / cache_key
 
         if out_path.exists() and out_path.stat().st_size > 0:
@@ -146,10 +146,14 @@ class PosterGenerator:
         return img
 
 
-def _safe_id(item_id: str) -> str:
+def safe_filename_id(item_id: str) -> str:
     """Sanitise item_id for safe use in a filename."""
     h = hashlib.sha1(item_id.encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
     return f"{item_id.replace('/', '_').replace(':', '_')[:50]}__{h}"
+
+
+# Back-compat alias for tests
+_safe_id = safe_filename_id
 
 
 def _font(size: int) -> ImageFont.ImageFont:
