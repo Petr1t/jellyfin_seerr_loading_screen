@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Seerr Loading Screen</title>
+</head>
+<body>
+<div id="SeerrLoadingScreenConfigurationPage"
+     data-role="page"
+     class="page type-interior pluginConfigurationPage"
+     data-require="emby-input,emby-button,emby-checkbox,emby-select">
+    <div data-role="content">
+        <div class="content-primary">
+
+            <form id="SeerrLoadingScreenConfigurationForm">
+
+                <h2>Seerr Loading Screen</h2>
+                <p>Show Sonarr/Radarr pending downloads as Jellyfin library items with live progress.</p>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="DaemonUrl">jslsd Daemon URL</label>
+                    <input is="emby-input" type="text" id="DaemonUrl" required />
+                    <div class="fieldDescription">
+                        URL of the running jslsd daemon.
+                        Example: <code>http://localhost:7000</code>.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="RefreshIntervalSeconds">
+                        Refresh interval (seconds)
+                    </label>
+                    <input is="emby-input" type="number" id="RefreshIntervalSeconds"
+                           min="10" max="600" required />
+                    <div class="fieldDescription">
+                        How often the plugin polls the daemon. Lower = fresher progress, higher = less load.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="VirtualLibraryName">
+                        Virtual library name
+                    </label>
+                    <input is="emby-input" type="text" id="VirtualLibraryName" required />
+                </div>
+
+                <div class="checkboxContainer">
+                    <label>
+                        <input type="checkbox" is="emby-checkbox" id="ShowAllUsers" />
+                        <span>Show all users' pending requests (uncheck to filter by current user)</span>
+                    </label>
+                </div>
+
+                <div class="checkboxContainer">
+                    <label>
+                        <input type="checkbox" is="emby-checkbox" id="HideCompleted" />
+                        <span>Hide completed items (don't show "READY" state for 5 minutes after completion)</span>
+                    </label>
+                </div>
+
+                <div>
+                    <button is="emby-button" type="submit" class="raised button-submit block">
+                        <span>Save</span>
+                    </button>
+                </div>
+
+            </form>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        var SeerrLoadingScreenPluginId = "4f2c0e3a-9b4d-4f7c-9a31-2d6e8f1b5c0a";
+
+        document.querySelector('#SeerrLoadingScreenConfigurationPage')
+            .addEventListener('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(SeerrLoadingScreenPluginId).then(function (config) {
+                    document.querySelector('#DaemonUrl').value = config.DaemonUrl;
+                    document.querySelector('#RefreshIntervalSeconds').value = config.RefreshIntervalSeconds;
+                    document.querySelector('#VirtualLibraryName').value = config.VirtualLibraryName;
+                    document.querySelector('#ShowAllUsers').checked = config.ShowAllUsers;
+                    document.querySelector('#HideCompleted').checked = config.HideCompleted;
+                    Dashboard.hideLoadingMsg();
+                });
+            });
+
+        document.querySelector('#SeerrLoadingScreenConfigurationForm')
+            .addEventListener('submit', function (e) {
+                e.preventDefault();
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(SeerrLoadingScreenPluginId).then(function (config) {
+                    config.DaemonUrl = document.querySelector('#DaemonUrl').value;
+                    config.RefreshIntervalSeconds =
+                        parseInt(document.querySelector('#RefreshIntervalSeconds').value, 10);
+                    config.VirtualLibraryName = document.querySelector('#VirtualLibraryName').value;
+                    config.ShowAllUsers = document.querySelector('#ShowAllUsers').checked;
+                    config.HideCompleted = document.querySelector('#HideCompleted').checked;
+                    ApiClient.updatePluginConfiguration(SeerrLoadingScreenPluginId, config)
+                        .then(Dashboard.processPluginConfigurationUpdateResult);
+                });
+                return false;
+            });
+    </script>
+</div>
+</body>
+</html>

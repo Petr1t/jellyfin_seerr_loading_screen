@@ -1,0 +1,28 @@
+[Unit]
+Description=jslsd — Jellyfin Seerr Loading Screen daemon
+Documentation=https://github.com/Petr1t/jellyfin_seerr_loading_screen
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=%h/.local/share/jslsd/.venv/bin/jslsd --config %h/.config/jslsd/config.yaml
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=%h/.cache/jslsd %h/.local/share/jslsd
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=default.target

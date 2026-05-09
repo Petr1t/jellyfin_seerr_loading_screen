@@ -1,0 +1,42 @@
+name: .NET Plugin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'plugin/**'
+      - '.github/workflows/dotnet.yml'
+  pull_request:
+    paths:
+      - 'plugin/**'
+      - '.github/workflows/dotnet.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        working-directory: plugin
+        run: dotnet restore
+
+      - name: Build
+        working-directory: plugin
+        run: dotnet build -c Release --no-restore
+
+      - name: Package
+        working-directory: plugin
+        run: bash build-zip.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-zip
+          path: plugin/dist/*.zip
+          retention-days: 30
