@@ -1,3 +1,4 @@
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -10,7 +11,7 @@ namespace Jellyfin.Plugin.SeerrLoadingScreen;
 /// </summary>
 public class ServiceRegistration : IPluginServiceRegistrator
 {
-    public void RegisterServices(IServiceCollection services)
+    public void RegisterServices(IServiceCollection services, IServerApplicationHost applicationHost)
     {
         services.AddHttpClient<DaemonClient>();
     }
