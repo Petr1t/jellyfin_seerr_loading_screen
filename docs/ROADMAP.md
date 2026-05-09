@@ -1,67 +1,45 @@
 # Roadmap
 
-## v0.1 — Side-car daemon (current)
+## ✅ v0.2.0 — Released 2026-05-09
 
-**Status:** in development.
+- [x] Python daemon: Sonarr + Radarr queue polling, poster overlay generation, FastAPI
+- [x] systemd-user-unit installer
+- [x] Jellyfin plugin implementing `IChannel`
+- [x] Plugin admin UI for daemon URL + refresh interval + multi-user toggle
+- [x] Hosted manifest at `https://raw.githubusercontent.com/Petr1t/jellyfin_seerr_loading_screen/main/manifest.json`
+- [x] GitHub Release with attached plugin ZIP
+- [x] CI green for both halves (Python 3.11/3.12 + .NET 9)
+- [x] 15 unit tests passing for the daemon
 
-- [x] Repo skeleton, GPL-2.0 LICENSE, README, ARCHITECTURE
-- [x] `pyproject.toml`, package layout
-- [ ] `arr_client.py`: Sonarr `/api/v3/queue` + Radarr `/api/v3/queue` polling
-- [ ] `models.py`: `PendingItem` Pydantic model
-- [ ] `poller.py`: background task with state cache
-- [ ] `posters.py`: PIL-based overlay generation
-- [ ] `tmdb_art.py`: poster-art fallback (iTunes Search API or TMDB)
-- [ ] `jellyseerr_client.py`: optional, resolve request → user
-- [ ] `api.py`: FastAPI app, `/api/coming-soon`, `/api/poster/<id>.png`, `/healthz`
-- [ ] `config.py`: YAML config + env-var override
-- [ ] `tests/`: unit tests for client, poster, api
-- [ ] `scripts/install-daemon.sh`: interactive installer
-- [ ] `jslsd.service`: systemd-user-unit template
-- [ ] GitHub Actions CI: lint (ruff) + test (pytest) + build wheel
+**Verified end-to-end:** daemon runs as systemd-user-unit, returns JSON, generates working poster overlays. Plugin builds in CI against Jellyfin.Controller 10.11.
 
-**Done = daemon runs as systemd-user-unit, returns valid JSON, generates working poster overlays. Verified on paradecentral against real Sonarr+Radarr+Jellyseerr instances.**
+## 🟡 v0.3 — webhooks + multi-user fix (next)
 
-## v0.2 — Jellyfin C# plugin (next)
-
-**Status:** skeleton only.
-
-- [x] `plugin/` directory layout
-- [ ] `Jellyfin.Plugin.SeerrLoadingScreen.csproj` targeting Jellyfin 10.11
-- [ ] `Plugin.cs` extending `BasePlugin<PluginConfiguration>`
-- [ ] `PluginConfiguration.cs` (daemon URL, poll interval, show_all_users)
-- [ ] `Configuration/configPage.html` admin UI
-- [ ] `Services/DaemonClient.cs`: HTTP client to jslsd
-- [ ] `Services/VirtualItemProvider.cs`: creates virtual `BaseItem`s in a virtual library "📥 Coming Soon"
-- [ ] `ScheduledTasks/RefreshTask.cs`: polls daemon every N seconds
-- [ ] FileTransformation integration for live progress overlay in Web UI
-- [ ] Build script: produces `.zip` + `meta.json` for Jellyfin's plugin manifest
-- [ ] GitHub Actions: build .NET, upload artifact
-
-**Done = plugin installs into Jellyfin 10.11 via manifest URL, virtual items appear in library view with poster + overlay, refreshes every 30s.**
-
-## v0.3 — Webhooks + multi-user
-
-**Status:** planned.
-
-- [ ] `POST /webhook/sonarr` and `/webhook/radarr` endpoints in jslsd
-- [ ] Sonarr/Radarr connect-config templates included in `scripts/`
-- [ ] Push-based cache invalidation (sub-second update latency)
-- [ ] Multi-user filter via Jellyseerr's `requestedBy.jellyfinUserId`
+- [ ] `POST /webhook/sonarr` and `/webhook/radarr` endpoints in `jslsd`
+- [ ] Sonarr/Radarr "Connect" config templates included in `scripts/`
+- [ ] Push-based cache invalidation (sub-second update latency vs current 30s poll)
+- [ ] Multi-user filter via Jellyseerr's `requestedBy.jellyfinUserId` (currently filters by display-name, which is fragile)
 - [ ] Plugin: per-user filter toggle in Web UI
 
-## v0.4 — Polish + Plugin Repo
+## 🔵 v0.4 — polish + plugin-repo submission
 
-**Status:** future.
-
-- [ ] iOS/Android Jellyfin app screenshots in README (the baked-PNG approach should work natively there too)
+- [ ] iOS / Android client compatibility testing — verify the baked progress poster renders on native apps
+- [ ] Discord/Reddit announcement post in `/r/jellyfin` once tested
 - [ ] Submit to https://repo.jellyfin.org/ as community plugin
 - [ ] Helm chart for Kubernetes deployments
 - [ ] Docker Compose example with full Arr stack
-- [ ] Proper `manifest.intro-skipper.workers.dev` style hosted manifest
+- [ ] Pause / Resume / Cancel buttons in the plugin UI (calls Sonarr/Radarr queue-edit endpoints)
 
-## Non-goals
+## ⚪ Open questions / non-goals
 
 - ❌ Replacing Jellyseerr. We display its requests, we don't reimplement them.
 - ❌ Replacing Sonarr/Radarr. We're a thin layer on top of their queue APIs.
-- ❌ Showing recommendations (use Jellynext for that — it's the recommended pattern).
+- ❌ Showing recommendations (use [Jellynext](https://github.com/luall0/jellynext) for that).
 - ❌ Becoming a download manager. We display state, we don't manage it.
+
+## 💡 Hard problems we want help with
+
+- **iOS/tvOS app testing.** We don't have one. If you do, file an issue with screenshots showing how the channel renders.
+- **Multi-user mapping.** The current name-based filter is a placeholder. Proper Jellyseerr user → Jellyfin user mapping needs the daemon to expose the Jellyfin-side user ID, which Jellyseerr stores per-request. We have a design (see `jellyseerr_client.py`) but no test setup with multiple users.
+- **Sub-second progress updates.** The 30s poll is fine for first-pass, but a webhook flow (planned v0.3) would let the channel reflect download progress in near-real-time.
+- **Channel image / icon.** Currently the channel has no icon — Jellyfin shows a default. A small SVG that fits the Forest-Green-Apple aesthetic of the rest of the project would be nice.

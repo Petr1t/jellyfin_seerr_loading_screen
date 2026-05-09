@@ -16,18 +16,18 @@ When you request a movie or TV show via Jellyseerr, it disappears into a black b
    Aired           Coming Soon            Aired
 ```
 
-## Status
+## Status — **v0.2.0** (released 2026-05-09)
 
-**v0.1 — Side-car daemon (Python).** Pollt Sonarr and Radarr APIs, caches the queue, generates poster overlays with progress, exposes a JSON HTTP API.
-*Working today, runs as systemd-user-unit on the same host as your Arr stack.*
+**Daemon (Python `jslsd`)** — feature-complete. Polls Sonarr + Radarr `/api/v3/queue`, generates poster overlays with progress, exposes a JSON HTTP API. Runs as systemd-user-unit on your Arr host. 15 unit tests passing, smoke-tested against real Sonarr 4.0.17 + Radarr.
 
-**v0.2 — Jellyfin C# plugin.** Consumes the v0.1 daemon, creates virtual library items via Jellyfin's `BaseItem` API, hooks into the Web UI via the `FileTransformation` plugin to render the progress overlay live in your library view.
-*Skeleton present, full implementation in progress — see [ROADMAP.md](docs/ROADMAP.md).*
+**Jellyfin Plugin (.NET 9, Jellyfin 10.11)** — implements `IChannel` to expose pending downloads as a browseable channel inside Jellyfin. The channel auto-refreshes when the queue changes. Native iOS/Android/tvOS support via baked PNG progress posters (no JS overlay hacks).
+
+[![Latest release](https://img.shields.io/github/v/release/Petr1t/jellyfin_seerr_loading_screen)](https://github.com/Petr1t/jellyfin_seerr_loading_screen/releases/latest)
 
 ## Architecture
 
 ```
-[Jellyseerr] ──request──▶ [Sonarr / Radarr] ──▶ [qBittorrent]
+[Jellyseerr] ──request──▶ [Sonarr / Radarr] ──▶ [qBittorrent / SAB / ...]
                                   │
                                   │ poll /api/v3/queue every 30s
                                   ▼
@@ -36,19 +36,24 @@ When you request a movie or TV show via Jellyseerr, it disappears into a black b
                           ─ generates poster overlays (PIL)
                           ─ FastAPI: /api/coming-soon
                                   │
-                                  │ HTTP poll
+                                  │ HTTP polled by Jellyfin
                                   ▼
-                  [jellyfin_seerr_loading_screen plugin]
-                          ─ creates virtual BaseItems
-                          ─ injects progress overlay into Web UI
+                  [Seerr Loading Screen plugin]
+                          ─ implements IChannel
+                          ─ each pending item → ChannelItemInfo
+                          ─ ImageUrl points at daemon poster
                                   │
                                   ▼
                               [Jellyfin]
+                          → "📥 Coming Soon" channel
+                            in user's library list
 ```
 
-The two halves are independent. You can run only the Python daemon today and build your own UI on top of `/api/coming-soon`. The plugin is convenience — it wires the daemon into Jellyfin's native library view.
+The two halves are independent. The daemon is useful on its own — `/api/coming-soon` JSON can drive a HUB75 LED display, a Telegram bot, or a Home Assistant sensor.
 
-## Quick start (v0.1 daemon only)
+## Quick start
+
+### Step 1 — install the daemon (`jslsd`) on your Arr host
 
 ```bash
 git clone https://github.com/Petr1t/jellyfin_seerr_loading_screen.git
@@ -56,21 +61,33 @@ cd jellyfin_seerr_loading_screen
 ./scripts/install-daemon.sh
 ```
 
-The installer prompts for:
-- Sonarr URL + API key
-- Radarr URL + API key
-- (Optional) Jellyseerr URL + API key
-- Listening port (default 7878 — yes, same as Radarr's, change if you run the daemon on the same host)
+The installer prompts for Sonarr / Radarr / Jellyseerr URLs + API keys, writes `~/.config/jslsd/config.yaml`, installs as a systemd-user-unit on port `7000` (configurable), and starts it.
 
-It writes `/etc/jslsd/config.yaml`, installs `jslsd.service`, starts it, and you can verify:
-
+Verify:
 ```bash
-curl http://localhost:7878/api/coming-soon | jq
+curl http://localhost:7000/healthz | jq
+curl http://localhost:7000/api/coming-soon | jq
 ```
 
-## Quick start (v0.2 plugin)
+### Step 2 — install the Jellyfin plugin
 
-[See ROADMAP.md](docs/ROADMAP.md) — not stable yet.
+In Jellyfin admin → Dashboard → Plugins → **Repositories** → **Add**:
+
+| Field | Value |
+|---|---|
+| Repository Name | `Seerr Loading Screen` |
+| Repository URL | `https://raw.githubusercontent.com/Petr1t/jellyfin_seerr_loading_screen/main/manifest.json` |
+
+Then **Catalog** → **Seerr Loading Screen** → **Install**. Restart Jellyfin.
+
+### Step 3 — point the plugin at the daemon
+
+Plugins → **Seerr Loading Screen** → set:
+- **Daemon URL**: `http://<paradecentral-or-wherever>:7000`
+- **Refresh interval**: 30s default
+- **Show all users**: on (single-user setup) or off (filter by Jellyseerr-mapped current user)
+
+Save. The "📥 Coming Soon" channel appears in your library list within ~30s. Items show with progress posters; click one to see overview + status. Items disappear when the download completes (default 5min READY-state retention).
 
 ## Configuration
 
