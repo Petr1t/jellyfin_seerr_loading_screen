@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/Petr1t/jellyfin_seerr_loading_screen/main/assets/posters/sample-downloading-65pct.png",
     "versions": [
       {
+        "version": "0.2.2.0",
+        "changelog": "Robustness pass: Channel listing now bounded by a 5s timeout against a hung daemon, smarter cache-key (state-hash, not timestamp) so refreshes only happen when items change. Daemon refactored: shared httpx client, ~200 LOC reduction. Verified end-to-end on Jellyfin 10.11.8.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Petr1t/jellyfin_seerr_loading_screen/releases/download/v0.2.2/Jellyfin.Plugin.SeerrLoadingScreen-0.2.2.zip",
+        "checksum": "5b1339698713626ebc91eb40ecfd2657",
+        "timestamp": "2026-05-09T16:40:35.0000000Z"
+      },
+      {
         "version": "0.2.1.0",
         "changelog": "Fix: register IChannel in DI container so Jellyfin actually discovers and lists the channel. Verified end-to-end on a live Jellyfin 10.11.8 server. Adds --demo flag to the daemon for first-run preview.",
         "targetAbi": "10.11.0.0",
