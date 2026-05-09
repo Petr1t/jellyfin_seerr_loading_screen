@@ -9,7 +9,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-VERSION="0.2.0"
+VERSION="0.2.2"
 DIST_DIR="$SCRIPT_DIR/dist"
 PKG_NAME="Jellyfin.Plugin.SeerrLoadingScreen"
 ZIP_NAME="${PKG_NAME}-${VERSION}.zip"
@@ -40,7 +40,7 @@ cat > "$DIST_DIR/meta.json" <<JSON
   "overview": "Surfaces Jellyseerr-requested media via Sonarr/Radarr queue as virtual Jellyfin library items with live progress overlay.",
   "targetAbi": "10.11.0.0",
   "version": "${VERSION}.0",
-  "changelog": "v${VERSION}: skeleton release — daemon-side complete, plugin scaffolding in place.",
+  "changelog": "v${VERSION}: robustness pass — Channel listing now bounded by a 5s timeout against a hung daemon, smarter cache-key (state-hash, not timestamp) so refreshes only happen when items change. Daemon refactored: shared httpx client, ~200 LOC reduction. Verified end-to-end on Jellyfin 10.11.8.",
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%S.0000000Z)",
   "checksum": "${CHECKSUM}",
   "sourceUrl": "https://github.com/Petr1t/jellyfin_seerr_loading_screen/releases/download/v${VERSION}/${ZIP_NAME}"
