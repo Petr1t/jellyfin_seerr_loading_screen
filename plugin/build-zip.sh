@@ -19,13 +19,13 @@ mkdir -p "$DIST_DIR"
 dotnet restore
 dotnet build -c Release -p:Version="${VERSION}" -p:AssemblyVersion="${VERSION}.0"
 
-DLL="bin/Release/net8.0/${PKG_NAME}.dll"
+DLL="bin/Release/net9.0/${PKG_NAME}.dll"
 if [[ ! -f "$DLL" ]]; then
     echo "build artifact missing: $DLL" >&2
     exit 1
 fi
 
-(cd "bin/Release/net8.0" && zip -q "$DIST_DIR/$ZIP_NAME" "${PKG_NAME}.dll")
+(cd "bin/Release/net9.0" && zip -q "$DIST_DIR/$ZIP_NAME" "${PKG_NAME}.dll")
 
 # Compute checksum (Jellyfin manifest requires md5)
 CHECKSUM=$(md5sum "$DIST_DIR/$ZIP_NAME" | awk '{print $1}')
