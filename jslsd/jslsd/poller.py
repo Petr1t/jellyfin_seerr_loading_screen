@@ -24,6 +24,8 @@ class Poller:
         self._cache: dict[str, PendingItem] = {}
         self._exited_at: dict[str, datetime] = {}
         self.last_poll: datetime | None = None
+        self.consecutive_failures: int = 0
+        self.last_poll_error: str | None = None
 
         self._http = httpx.AsyncClient(timeout=15.0)
         self._sonarr = SonarrClient(config.sonarr, self._http) if config.sonarr else None
@@ -74,8 +76,12 @@ class Poller:
         while not self._stop.is_set():
             try:
                 await self.poll_once()
-            except Exception:  # noqa: BLE001
-                log.exception("Poll cycle failed")
+                self.consecutive_failures = 0
+                self.last_poll_error = None
+            except Exception as e:  # noqa: BLE001
+                self.consecutive_failures += 1
+                self.last_poll_error = f"{type(e).__name__}: {e}"
+                log.exception("Poll cycle failed (consecutive=%d)", self.consecutive_failures)
             try:
                 await asyncio.wait_for(
                     self._stop.wait(), timeout=self.config.poll_interval_seconds
@@ -209,13 +215,16 @@ class Poller:
         sonarr_ok = await self._sonarr.health() if self._sonarr else True
         radarr_ok = await self._radarr.health() if self._radarr else True
         seerr_ok = await self._seerr.health() if self._seerr else None
+        healthy = sonarr_ok and radarr_ok and self.consecutive_failures < 3
         return {
-            "status": "ok" if (sonarr_ok and radarr_ok) else "degraded",
+            "status": "ok" if healthy else "degraded",
             "sonarr_reachable": sonarr_ok,
             "radarr_reachable": radarr_ok,
             "jellyseerr_reachable": seerr_ok,
             "items_in_cache": len(self._cache),
             "last_poll": self.last_poll.isoformat() if self.last_poll else None,
+            "consecutive_failures": self.consecutive_failures,
+            "last_poll_error": self.last_poll_error,
         }
 
 

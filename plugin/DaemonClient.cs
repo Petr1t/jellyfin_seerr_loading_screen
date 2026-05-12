@@ -31,9 +31,15 @@ public class DaemonClient
             var items = await _http.GetFromJsonAsync<PendingItem[]>(url, ct).ConfigureAwait(false);
             return (IReadOnlyList<PendingItem>?)items ?? Array.Empty<PendingItem>();
         }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
+        catch (TaskCanceledException e) when (!ct.IsCancellationRequested)
         {
-            _log.LogWarning("jslsd unreachable at {Url}: {Message}", url, e.Message);
+            // HttpClient.Timeout fired (10s) — daemon is up but slow/hung, distinct from caller-side cancel.
+            _log.LogWarning(e, "jslsd timed out at {Url} after {TimeoutSeconds}s", url, _http.Timeout.TotalSeconds);
+            return Array.Empty<PendingItem>();
+        }
+        catch (HttpRequestException e)
+        {
+            _log.LogWarning(e, "jslsd unreachable at {Url} (status={Status})", url, e.StatusCode);
             return Array.Empty<PendingItem>();
         }
     }

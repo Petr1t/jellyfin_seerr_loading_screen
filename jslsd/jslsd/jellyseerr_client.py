@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -11,6 +12,8 @@ from .config import JellyseerrConfig
 
 log = logging.getLogger(__name__)
 
+_NEGATIVE_TTL_SECONDS = 1800  # 30 min — don't re-query missing requesters every cycle
+
 
 class JellyseerrClient:
     def __init__(self, config: JellyseerrConfig, client: httpx.AsyncClient) -> None:
@@ -18,6 +21,7 @@ class JellyseerrClient:
         self.api_key = config.api_key
         self._client = client
         self._cache: dict[tuple[int, str], dict[str, Any]] = {}
+        self._negative_cache: dict[tuple[int, str], float] = {}
 
     async def health(self) -> bool:
         try:
@@ -35,6 +39,8 @@ class JellyseerrClient:
         key = (tmdb_id, media_type)
         if key in self._cache:
             return self._cache[key]
+        if (expires := self._negative_cache.get(key)) and expires > time.monotonic():
+            return None
 
         try:
             r = await self._get(
@@ -47,9 +53,11 @@ class JellyseerrClient:
                 if m.get("tmdbId") == tmdb_id and m.get("mediaType") == media_type:
                     self._cache[key] = req
                     return req
-        except httpx.HTTPError as e:
+        except (httpx.HTTPError, ValueError) as e:
             log.warning("Jellyseerr lookup failed for tmdb=%s: %s", tmdb_id, e)
+            return None
 
+        self._negative_cache[key] = time.monotonic() + _NEGATIVE_TTL_SECONDS
         return None
 
     async def _get(self, path: str, **kwargs: Any) -> httpx.Response:

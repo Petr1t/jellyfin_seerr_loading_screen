@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import io
 import logging
+import os
 from pathlib import Path
 
 import httpx
@@ -61,7 +62,16 @@ class PosterGenerator:
             status=status,
             title=title,
         )
-        rendered.save(out_path, format="PNG", optimize=True)
+        # Atomic write: render to temp file in the same dir, then rename. Prevents
+        # a half-written PNG from being served if the process dies mid-save (the
+        # >0 size check above would happily return a truncated file otherwise).
+        tmp_path = out_path.with_suffix(out_path.suffix + f".tmp.{os.getpid()}")
+        try:
+            rendered.save(tmp_path, format="PNG", optimize=True)
+            os.replace(tmp_path, out_path)
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
         return out_path
 
     async def _load_base_art(self, item_id: str, art_url: str | None) -> Image.Image:

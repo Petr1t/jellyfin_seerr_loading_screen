@@ -73,17 +73,22 @@ class ArrClient:
             return False
 
     async def queue(self) -> list[QueueRecord]:
-        r = await self._get(
-            "/api/v3/queue",
-            params={
-                "pageSize": 200,
-                "includeUnknownMovieItems": "false",
-                "includeMovie": "true",
-            },
-        )
-        r.raise_for_status()
+        try:
+            r = await self._get(
+                "/api/v3/queue",
+                params={
+                    "pageSize": 200,
+                    "includeUnknownMovieItems": "false",
+                    "includeMovie": "true",
+                },
+            )
+            r.raise_for_status()
+            records = r.json().get("records", [])
+        except (httpx.HTTPError, ValueError) as e:
+            log.warning("%s queue fetch failed: %s", self.source_name, e)
+            return []
         out: list[QueueRecord] = []
-        for raw in r.json().get("records", []):
+        for raw in records:
             media = await self._fetch_media(raw)
             out.append(
                 QueueRecord(
