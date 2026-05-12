@@ -75,6 +75,21 @@ public class SeerrLoadingScreenChannel : IChannel, IHasCacheKey
         InternalChannelItemQuery query,
         CancellationToken ct)
     {
+        // Clicking into a folder item — Jellyfin echoes our own item id back
+        // as FolderId. Return zero children so the page renders empty instead
+        // of re-listing the whole channel inside the folder.
+        if (!string.IsNullOrEmpty(query.FolderId)
+            && (query.FolderId.StartsWith("sonarr-", StringComparison.Ordinal)
+                || query.FolderId.StartsWith("radarr-", StringComparison.Ordinal)))
+        {
+            _log.LogDebug("Sub-folder request for {FolderId}, returning empty", query.FolderId);
+            return new ChannelItemResult
+            {
+                Items = Array.Empty<ChannelItemInfo>(),
+                TotalRecordCount = 0,
+            };
+        }
+
         // Bound the daemon call so a slow/down daemon never hangs the channel render.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(5));
@@ -92,7 +107,7 @@ public class SeerrLoadingScreenChannel : IChannel, IHasCacheKey
 
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
-        var items = pending
+        var filtered = pending
             .Where(p => !(config.HideCompleted && p.Status == "completed"))
             .Where(p => config.ShowAllUsers
                         || string.IsNullOrEmpty(p.RequestedBy)
@@ -100,11 +115,14 @@ public class SeerrLoadingScreenChannel : IChannel, IHasCacheKey
                             p.RequestedBy,
                             query.UserId.ToString(),
                             StringComparison.OrdinalIgnoreCase))
-            .Select(ToChannelItem)
             .ToList();
 
-        // Update cache key based on what we actually returned.
-        _lastDataVersion = HashItems(items);
+        var items = filtered.Select(ToChannelItem).ToList();
+
+        // Update cache key based on the underlying queue state: id, status,
+        // and 5%-bucket progress. Hashing only ids meant size/progress
+        // changes never invalidated Jellyfin's channel cache.
+        _lastDataVersion = HashPending(filtered);
         _log.LogDebug("Channel listing: {Count} item(s), version={Version}",
             items.Count, _lastDataVersion);
 
@@ -161,12 +179,13 @@ public class SeerrLoadingScreenChannel : IChannel, IHasCacheKey
     /// <summary>Stable hash over (id, status, progress-bucket) — matches the
     /// daemon's poster cache buckets (5% steps), so Jellyfin re-fetches at
     /// the same granularity at which posters change.</summary>
-    private static string HashItems(IEnumerable<ChannelItemInfo> items)
+    private static string HashPending(IEnumerable<PendingItem> items)
     {
         var sb = new StringBuilder();
-        foreach (var i in items.OrderBy(x => x.Id, StringComparer.Ordinal))
+        foreach (var p in items.OrderBy(x => x.Id, StringComparer.Ordinal))
         {
-            sb.Append(i.Id).Append('|');
+            var bucket = (int)(p.ProgressPercent / 5) * 5;
+            sb.Append(p.Id).Append(':').Append(p.Status).Append(':').Append(bucket).Append('|');
         }
         var hash = SHA1.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
         return Convert.ToHexString(hash)[..16];

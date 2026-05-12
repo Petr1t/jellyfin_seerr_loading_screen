@@ -173,8 +173,16 @@ class Poller:
         media = rep.media or {}
         series = media.get("title") or "Unknown Series"
 
-        size_total = sum((r.raw.get("size") or 0) for r in group)
-        size_left = sum((r.raw.get("sizeleft") or 0) for r in group)
+        # A season pack shows up as one Sonarr queue record per episode but a
+        # single downloadId on SAB/qBittorrent — and every record carries the
+        # full pack size. Naively summing inflates the total N-fold.
+        # Dedupe by downloadId; records without one are treated as standalone.
+        by_download: dict[str, QueueRecord] = {}
+        for r in group:
+            key = r.raw.get("downloadId") or f"_solo_{r.queue_id}"
+            by_download.setdefault(key, r)
+        size_total = sum((r.raw.get("size") or 0) for r in by_download.values())
+        size_left = sum((r.raw.get("sizeleft") or 0) for r in by_download.values())
         progress = (
             round((1 - size_left / size_total) * 100, 1) if size_total > 0 else 0.0
         )
