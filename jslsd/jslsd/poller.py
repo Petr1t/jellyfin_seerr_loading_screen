@@ -37,6 +37,8 @@ class Poller:
             cache_dir=config.poster_cache_dir,
             size=config.poster_size,
             client=self._http,
+            accent_color=config.accent_color,
+            surface_color=config.surface_color,
         )
 
         self._task: asyncio.Task | None = None
@@ -101,68 +103,143 @@ class Poller:
                 log.warning("%s poll failed: %s", client.source_name, e)
 
         seen: set[str] = set()
-        for record in records:
-            item = await self._normalise(record)
-            if item is None:
-                continue
+        for item, art_record in await self._build_items(records):
             seen.add(item.id)
             self._cache[item.id] = item
-            await self._regenerate_poster(item, record)
+            await self._regenerate_poster(item, art_record)
 
         self._evict_stale(seen)
         self.last_poll = datetime.now().astimezone()
         log.debug("Poll complete: %d items in cache", len(self._cache))
 
-    async def _normalise(self, record: QueueRecord) -> PendingItem | None:
+    async def _build_items(
+        self, records: list[QueueRecord]
+    ) -> list[tuple[PendingItem, QueueRecord]]:
+        """Movies stay 1:1, episodes get grouped per (series, season)."""
+        out: list[tuple[PendingItem, QueueRecord]] = []
+
+        for record in records:
+            if record.source == "radarr":
+                item = await self._normalise_movie(record)
+                if item is not None:
+                    out.append((item, record))
+
+        # Group Sonarr records by (series_id, season). Records without a known
+        # season fall back to a single "Sxx" bucket so they still surface.
+        groups: dict[tuple[int, int | None], list[QueueRecord]] = {}
+        for record in records:
+            if record.source != "sonarr":
+                continue
+            series_id = record.raw.get("seriesId")
+            if not series_id:
+                continue
+            season = record.raw.get("seasonNumber")
+            groups.setdefault((series_id, season), []).append(record)
+
+        for (series_id, season), group in groups.items():
+            item = await self._aggregate_season(series_id, season, group)
+            out.append((item, group[0]))
+
+        return out
+
+    async def _normalise_movie(self, record: QueueRecord) -> PendingItem | None:
         media = record.media or {}
-        item_id = f"{record.source}-{record.queue_id}"
+        item_id = f"radarr-{record.queue_id}"
+        return PendingItem(
+            id=item_id,
+            source="radarr",
+            type="movie",
+            title=media.get("title", "Unknown Movie"),
+            episode_count=1,
+            size_total_bytes=record.raw.get("size") or 0,
+            size_left_bytes=record.raw.get("sizeleft") or 0,
+            progress_percent=record.progress_percent,
+            eta_seconds=record.eta_seconds,
+            download_client=record.raw.get("downloadClient", "") or "",
+            status=record.status,
+            tmdb_id=media.get("tmdbId"),
+            imdb_id=media.get("imdbId"),
+            requested_by=await self._lookup_requester(media.get("tmdbId"), "movie"),
+            poster_url=f"/api/poster/{item_id}.png",
+        )
 
-        common = {
-            "id": item_id,
-            "size_total_bytes": record.raw.get("size") or 0,
-            "size_left_bytes": record.raw.get("sizeleft") or 0,
-            "progress_percent": record.progress_percent,
-            "eta_seconds": record.eta_seconds,
-            "download_client": record.raw.get("downloadClient", "") or "",
-            "status": record.status,
-            "tmdb_id": media.get("tmdbId"),
-            "imdb_id": media.get("imdbId"),
-            "poster_url": f"/api/poster/{item_id}.png",
-        }
+    async def _aggregate_season(
+        self,
+        series_id: int,
+        season: int | None,
+        group: list[QueueRecord],
+    ) -> PendingItem:
+        rep = group[0]
+        media = rep.media or {}
+        series = media.get("title") or "Unknown Series"
 
-        if record.source == "sonarr":
-            ep = record.raw.get("episode") or {}
-            season, episode = ep.get("seasonNumber"), ep.get("episodeNumber")
-            series = media.get("title") or "Unknown Series"
-            title = (
-                f"{series} — S{season:02d}E{episode:02d}"
-                if season is not None and episode is not None
-                else series
-            )
-            return PendingItem(
-                source="sonarr",
-                type="tv",
-                title=title,
-                series_title=media.get("title"),
-                season=season,
-                episode=episode,
-                tvdb_id=media.get("tvdbId"),
-                requested_by=await self._lookup_requester(media.get("tmdbId"), "tv"),
-                **common,
-            )
+        size_total = sum((r.raw.get("size") or 0) for r in group)
+        size_left = sum((r.raw.get("sizeleft") or 0) for r in group)
+        progress = (
+            round((1 - size_left / size_total) * 100, 1) if size_total > 0 else 0.0
+        )
 
-        if record.source == "radarr":
-            return PendingItem(
-                source="radarr",
-                type="movie",
-                title=media.get("title", "Unknown Movie"),
-                requested_by=await self._lookup_requester(media.get("tmdbId"), "movie"),
-                **common,
-            )
+        # Slowest individual ETA = whole-season ETA (it's the bottleneck).
+        etas = [r.eta_seconds for r in group if r.eta_seconds is not None]
+        eta = max(etas) if etas else None
 
-        return None
+        statuses = [r.status for r in group]
+        if all(s == "completed" for s in statuses):
+            status = "completed"
+        elif any(s == "failed" for s in statuses):
+            status = "failed"
+        elif any(s == "downloading" for s in statuses):
+            status = "downloading"
+        elif any(s == "paused" for s in statuses):
+            status = "paused"
+        else:
+            status = "queued"
+
+        season_tag = f"S{season:02d}" if season is not None else "Sxx"
+        item_id = f"sonarr-{series_id}-{season_tag}"
+        n = len(group)
+        ep_word = "Folge" if n == 1 else "Folgen"
+        if season is not None:
+            title = f"{series} — Staffel {season} ({n} {ep_word})"
+        else:
+            title = f"{series} ({n} {ep_word})"
+
+        return PendingItem(
+            id=item_id,
+            source="sonarr",
+            type="tv",
+            title=title,
+            series_title=series,
+            season=season,
+            episode=None,
+            episode_count=n,
+            tvdb_id=media.get("tvdbId"),
+            tmdb_id=media.get("tmdbId"),
+            imdb_id=media.get("imdbId"),
+            size_total_bytes=size_total,
+            size_left_bytes=size_left,
+            progress_percent=progress,
+            eta_seconds=eta,
+            download_client=rep.raw.get("downloadClient", "") or "",
+            status=status,
+            requested_by=await self._lookup_requester(media.get("tmdbId"), "tv"),
+            poster_url=f"/api/poster/{item_id}.png",
+        )
 
     async def _regenerate_poster(self, item: PendingItem, record: QueueRecord) -> None:
+        # Build a one-line subtitle: download source + total size, e.g. "12 Folgen · 24.3 GB"
+        size_gb = item.size_total_bytes / 1024**3
+        if item.type == "tv" and item.episode_count > 1:
+            ep_word = "Folge" if item.episode_count == 1 else "Folgen"
+            subtitle = f"{item.episode_count} {ep_word}  ·  {size_gb:.1f} GB"
+        elif size_gb >= 0.1:
+            subtitle = f"{size_gb:.1f} GB"
+        else:
+            subtitle = None
+        # Use just the series title (not the long aggregated title) as the headline.
+        display_title = item.series_title or item.title
+        if item.type == "tv" and item.season is not None:
+            display_title = f"{display_title} · Staffel {item.season}"
         try:
             await self.posters.get_or_generate(
                 item_id=item.id,
@@ -170,7 +247,8 @@ class Poller:
                 eta_seconds=item.eta_seconds,
                 status=item.status,
                 art_url=_art_url(record),
-                title=item.title,
+                title=display_title,
+                subtitle=subtitle,
             )
         except Exception:  # noqa: BLE001
             log.exception("Poster generation failed for %s", item.id)

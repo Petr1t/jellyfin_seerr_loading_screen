@@ -20,7 +20,10 @@ public class SeerrLoadingScreenChannel : IChannel, IHasCacheKey
 {
     private readonly DaemonClient _daemon;
     private readonly ILogger<SeerrLoadingScreenChannel> _log;
-    private string _lastDataVersion = "v0";
+    // Reset on every plugin reload so Jellyfin's channel cache is forced to
+    // re-fetch at least once after a restart (the per-poll hash takes over
+    // from there).
+    private string _lastDataVersion = "boot-" + DateTime.UtcNow.Ticks.ToString();
 
     public SeerrLoadingScreenChannel(DaemonClient daemon, ILogger<SeerrLoadingScreenChannel> log)
     {
@@ -41,6 +44,9 @@ public class SeerrLoadingScreenChannel : IChannel, IHasCacheKey
 
     public InternalChannelFeatures GetChannelFeatures() => new()
     {
+        // Declare Movie+Episode content types so Jellyfin keeps the channel
+        // visible in the user's library list. The per-item Type=Folder below
+        // is what suppresses the play button.
         ContentTypes = new List<ChannelMediaContentType>
         {
             ChannelMediaContentType.Movie,
@@ -113,15 +119,12 @@ public class SeerrLoadingScreenChannel : IChannel, IHasCacheKey
     {
         Id = p.Id,
         Name = DisplayName(p),
-        Type = ChannelItemType.Media,
-        ContentType = p.Type == "tv"
-            ? ChannelMediaContentType.Episode
-            : ChannelMediaContentType.Movie,
-        MediaType = ChannelMediaType.Video,
+        // Folder => Jellyfin does not show a Play button. Clicking opens the
+        // (empty) folder view, so we don't try to play a half-downloaded file.
+        Type = ChannelItemType.Folder,
         Overview = Overview(p),
         ImageUrl = _daemon.PosterUrlFor(p.Id),
         DateCreated = DateTime.UtcNow,
-        MediaSources = new List<MediaSourceInfo>(),
     };
 
     private static string DisplayName(PendingItem p) =>

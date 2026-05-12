@@ -26,9 +26,13 @@ class PosterGenerator:
         cache_dir: Path,
         size: tuple[int, int] = (400, 600),
         client: httpx.AsyncClient | None = None,
+        accent_color: str = "#ff00d4",
+        surface_color: str = "#101820",
     ) -> None:
         self.cache_dir = cache_dir
         self.size = size
+        self.accent_rgb = _hex_to_rgb(accent_color)
+        self.surface_rgb = _hex_to_rgb(surface_color)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._client = client or httpx.AsyncClient(timeout=15.0, follow_redirects=True)
         self._owns_client = client is None
@@ -46,6 +50,7 @@ class PosterGenerator:
         status: str,
         art_url: str | None,
         title: str,
+        subtitle: str | None = None,
     ) -> Path:
         bucket = int(progress_percent // 5) * 5
         cache_key = f"{safe_filename_id(item_id)}__p{bucket:03d}__{status}.png"
@@ -61,6 +66,7 @@ class PosterGenerator:
             eta_seconds=eta_seconds,
             status=status,
             title=title,
+            subtitle=subtitle,
         )
         # Atomic write: render to temp file in the same dir, then rename. Prevents
         # a half-written PNG from being served if the process dies mid-save (the
@@ -75,15 +81,19 @@ class PosterGenerator:
         return out_path
 
     async def _load_base_art(self, item_id: str, art_url: str | None) -> Image.Image:
-        """Fetch base poster art. Falls back to solid placeholder."""
+        """Fetch base poster art. Falls back to solid placeholder.
+
+        Art is cached by URL so multiple items pointing at the same series
+        poster only trigger one upstream fetch.
+        """
         if art_url:
-            cached = self._art_cache.get(item_id)
+            cached = self._art_cache.get(art_url)
             if not cached:
                 try:
                     r = await self._client.get(art_url)
                     r.raise_for_status()
                     cached = r.content
-                    self._art_cache[item_id] = cached
+                    self._art_cache[art_url] = cached
                 except httpx.HTTPError as e:
                     log.warning("Art fetch failed for %s (%s): %s", item_id, art_url, e)
 
@@ -106,19 +116,24 @@ class PosterGenerator:
         eta_seconds: int | None,
         status: str,
         title: str,
+        subtitle: str | None = None,
     ) -> Image.Image:
-        img = base.copy()
+        img = base.copy().convert("RGBA")
         w, h = img.size
 
-        # Subtle bottom-shadow for legibility
-        shadow = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        sd = ImageDraw.Draw(shadow)
-        sd.rectangle([0, h - 140, w, h], fill=(0, 0, 0, 180))
-        shadow = shadow.filter(ImageFilter.GaussianBlur(radius=8))
-        img = Image.alpha_composite(img.convert("RGBA"), shadow).convert("RGB")
+        # Gradient scrim along the bottom third for legibility — top transparent,
+        # bottom near-opaque using configured surface_color.
+        scrim_h = int(h * 0.42)
+        scrim = Image.new("RGBA", (w, scrim_h), (0, 0, 0, 0))
+        sr, sg, sb = self.surface_rgb
+        for y in range(scrim_h):
+            alpha = int(235 * (y / scrim_h) ** 1.6)
+            ImageDraw.Draw(scrim).line([(0, y), (w, y)], fill=(sr, sg, sb, alpha))
+        img.paste(scrim, (0, h - scrim_h), scrim)
 
         d = ImageDraw.Draw(img)
-        font_lg = _font(28)
+        font_lg = _font(30)
+        font_md = _font(22)
         font_sm = _font(18)
 
         # Status badge top-right
@@ -128,32 +143,78 @@ class PosterGenerator:
         bh = bbox[3] - bbox[1]
         bx, by = w - bw - 28, 16
         d.rounded_rectangle(
-            [bx - 12, by - 6, bx + bw + 12, by + bh + 10], radius=8, fill=badge_color
+            [bx - 12, by - 6, bx + bw + 12, by + bh + 10], radius=10, fill=badge_color
         )
         d.text((bx, by), badge_text, fill=(255, 255, 255), font=font_sm)
 
-        # Progress bar near bottom
-        bar_x0, bar_x1 = 32, w - 32
-        bar_y0, bar_y1 = h - 64, h - 50
-        d.rounded_rectangle(
-            [bar_x0, bar_y0, bar_x1, bar_y1], radius=6, fill=(60, 60, 60)
-        )
-        fill_width = int((bar_x1 - bar_x0) * (progress_percent / 100.0))
-        if fill_width > 4:
-            d.rounded_rectangle(
-                [bar_x0, bar_y0, bar_x0 + fill_width, bar_y1],
-                radius=6,
-                fill=(60, 200, 130),
+        # Title (auto-wrap to 2 lines)
+        title_lines = _wrap_title(title, font_lg, w - 64, d)
+        line_h = font_lg.size + 6
+        title_top = h - 168 - (len(title_lines) - 1) * line_h
+        for i, line in enumerate(title_lines):
+            d.text(
+                (32, title_top + i * line_h),
+                line,
+                fill=(255, 255, 255),
+                font=font_lg,
             )
 
-        # Progress text + ETA
-        pct_text = f"{progress_percent:.0f}%"
-        eta_text = _human_eta(eta_seconds) if eta_seconds is not None else ""
-        bottom_text = f"{pct_text}   ·   ETA  {eta_text}" if eta_text else pct_text
-        d.text((32, h - 110), title[:40], fill=(255, 255, 255), font=font_lg)
-        d.text((32, h - 30), bottom_text, fill=(220, 220, 220), font=font_sm)
+        # Subtitle (e.g. "12 Folgen · Sonarr")
+        if subtitle:
+            d.text((32, h - 130), subtitle, fill=(210, 210, 210), font=font_sm)
 
-        return img
+        # Big progress bar — 24px tall, with accent glow.
+        bar_x0, bar_x1 = 32, w - 32
+        bar_y0, bar_y1 = h - 92, h - 68
+        bar_radius = 12
+
+        # Track (dark, inset)
+        d.rounded_rectangle(
+            [bar_x0, bar_y0, bar_x1, bar_y1],
+            radius=bar_radius,
+            fill=(28, 28, 36),
+            outline=(255, 255, 255, 30),
+            width=1,
+        )
+
+        fill_width = int((bar_x1 - bar_x0) * (progress_percent / 100.0))
+        if fill_width > bar_radius * 2:
+            # Soft glow under the fill — same accent, very translucent
+            ar, ag, ab = self.accent_rgb
+            glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            gd = ImageDraw.Draw(glow)
+            gd.rounded_rectangle(
+                [bar_x0 - 6, bar_y0 - 6, bar_x0 + fill_width + 6, bar_y1 + 6],
+                radius=bar_radius + 6,
+                fill=(ar, ag, ab, 110),
+            )
+            glow = glow.filter(ImageFilter.GaussianBlur(radius=8))
+            img = Image.alpha_composite(img, glow)
+            d = ImageDraw.Draw(img)
+
+            # Solid fill
+            d.rounded_rectangle(
+                [bar_x0, bar_y0, bar_x0 + fill_width, bar_y1],
+                radius=bar_radius,
+                fill=(ar, ag, ab, 255),
+            )
+
+        # Bottom row: big percent on the left, ETA on the right
+        pct_text = f"{progress_percent:.0f}%"
+        d.text((32, h - 56), pct_text, fill=(255, 255, 255), font=font_md)
+
+        if eta_seconds is not None:
+            eta_text = f"ETA  {_human_eta(eta_seconds)}"
+            ebbox = d.textbbox((0, 0), eta_text, font=font_sm)
+            ew = ebbox[2] - ebbox[0]
+            d.text(
+                (w - ew - 32, h - 50),
+                eta_text,
+                fill=(220, 220, 220),
+                font=font_sm,
+            )
+
+        return img.convert("RGB")
 
 
 def safe_filename_id(item_id: str) -> str:
@@ -188,6 +249,45 @@ def _status_badge(status: str) -> tuple[str, tuple[int, int, int, int]]:
         "failed": ("FAILED", (220, 60, 60, 220)),
         "paused": ("PAUSED", (200, 160, 60, 220)),
     }.get(status, ("PENDING", (140, 140, 140, 220)))
+
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    s = hex_color.lstrip("#")
+    if len(s) == 3:
+        s = "".join(c * 2 for c in s)
+    return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+
+
+def _wrap_title(text: str, font: ImageFont.ImageFont, max_width: int, d: ImageDraw.ImageDraw) -> list[str]:
+    """Naive word-wrap to at most 2 lines, last line truncated with ellipsis."""
+    words = text.split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        bbox = d.textbbox((0, 0), candidate, font=font)
+        if bbox[2] - bbox[0] <= max_width:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = word
+            if len(lines) >= 1:
+                break
+    if current:
+        lines.append(current)
+    # Hard-truncate if still >2 lines worth
+    if len(lines) > 2:
+        lines = lines[:2]
+    # Ellipsis on last line if we ran out of space
+    if len(lines) == 2:
+        remaining_words = words[sum(len(line.split()) for line in lines):]
+        if remaining_words:
+            last = lines[1]
+            while d.textbbox((0, 0), last + "…", font=font)[2] > max_width and " " in last:
+                last = last.rsplit(" ", 1)[0]
+            lines[1] = last + "…"
+    return lines
 
 
 def _human_eta(seconds: int) -> str:
