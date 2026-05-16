@@ -103,7 +103,7 @@ def test_status_mapping() -> None:
         ("completed", "completed"),
         ("imported", "completed"),
         ("failed", "failed"),
-        ("warning", "failed"),
+        ("warning", "paused"),
         ("queued", "queued"),
         ("anything-else", "queued"),
     ]

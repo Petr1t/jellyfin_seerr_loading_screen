@@ -23,6 +23,10 @@ class Poller:
         self.config = config
         self._cache: dict[str, PendingItem] = {}
         self._exited_at: dict[str, datetime] = {}
+        # Each item is a (source, queue_id) tuple. Action endpoints use this
+        # map to fan out a single user action across the underlying records —
+        # one PendingItem may aggregate many queue rows (season packs etc.).
+        self._queue_ids_by_item: dict[str, list[tuple[str, int]]] = {}
         self.last_poll: datetime | None = None
         self.consecutive_failures: int = 0
         self.last_poll_error: str | None = None
@@ -47,6 +51,37 @@ class Poller:
     @property
     def items(self) -> list[PendingItem]:
         return list(self._cache.values())
+
+    @property
+    def items_by_id(self) -> dict[str, PendingItem]:
+        return dict(self._cache)
+
+    async def blocklist_item(self, item_id: str) -> dict[str, Any]:
+        """Remove every queue record this item aggregates from its Arr,
+        blocklisting the release so a different one gets grabbed next.
+        Returns a summary so the API can surface partial successes."""
+        targets = self._queue_ids_by_item.get(item_id, [])
+        if not targets:
+            return {"ok": False, "reason": "item not in cache", "succeeded": 0, "failed": 0}
+        succeeded, failed, errors = 0, 0, []
+        for source, queue_id in targets:
+            client = self._sonarr if source == "sonarr" else self._radarr
+            if client is None:
+                failed += 1
+                errors.append(f"{source} client not configured")
+                continue
+            try:
+                await client.blocklist_queue(queue_id)
+                succeeded += 1
+            except httpx.HTTPError as e:
+                failed += 1
+                errors.append(f"{source}#{queue_id}: {e}")
+        # Drop from cache immediately so the UI doesn't continue to show
+        # the just-blocklisted item before the next poll.
+        if succeeded > 0:
+            self._cache.pop(item_id, None)
+            self._queue_ids_by_item.pop(item_id, None)
+        return {"ok": failed == 0, "succeeded": succeeded, "failed": failed, "errors": errors}
 
     def get_poster_path(self, item_id: str) -> str | None:
         item = self._cache.get(item_id)
@@ -103,10 +138,13 @@ class Poller:
                 log.warning("%s poll failed: %s", client.source_name, e)
 
         seen: set[str] = set()
-        for item, art_record in await self._build_items(records):
+        new_queue_map: dict[str, list[tuple[str, int]]] = {}
+        for item, art_record, queue_records in await self._build_items(records):
             seen.add(item.id)
             self._cache[item.id] = item
+            new_queue_map[item.id] = [(r.source, r.queue_id) for r in queue_records]
             await self._regenerate_poster(item, art_record)
+        self._queue_ids_by_item = new_queue_map
 
         self._evict_stale(seen)
         self.last_poll = datetime.now().astimezone()
@@ -114,15 +152,20 @@ class Poller:
 
     async def _build_items(
         self, records: list[QueueRecord]
-    ) -> list[tuple[PendingItem, QueueRecord]]:
-        """Movies stay 1:1, episodes get grouped per (series, season)."""
-        out: list[tuple[PendingItem, QueueRecord]] = []
+    ) -> list[tuple[PendingItem, QueueRecord, list[QueueRecord]]]:
+        """Movies stay 1:1, episodes get grouped per (series, season).
+
+        Third tuple element is the full list of underlying queue records,
+        used by action endpoints (e.g. blocklist) that must fan out across
+        every record in a season aggregation.
+        """
+        out: list[tuple[PendingItem, QueueRecord, list[QueueRecord]]] = []
 
         for record in records:
             if record.source == "radarr":
                 item = await self._normalise_movie(record)
                 if item is not None:
-                    out.append((item, record))
+                    out.append((item, record, [record]))
 
         # Group Sonarr records by (series_id, season). Records without a known
         # season fall back to a single "Sxx" bucket so they still surface.
@@ -138,7 +181,7 @@ class Poller:
 
         for (series_id, season), group in groups.items():
             item = await self._aggregate_season(series_id, season, group)
-            out.append((item, group[0]))
+            out.append((item, group[0], group))
 
         return out
 
@@ -206,11 +249,18 @@ class Poller:
         season_tag = f"S{season:02d}" if season is not None else "Sxx"
         item_id = f"sonarr-{series_id}-{season_tag}"
         n = len(group)
-        ep_word = "Folge" if n == 1 else "Folgen"
-        if season is not None:
-            title = f"{series} — Staffel {season} ({n} {ep_word})"
-        else:
-            title = f"{series} ({n} {ep_word})"
+
+        # Sonarr exposes per-record episodeNumber via the includeEpisode flag.
+        # Sorted + unique so multiple records for the same episode (rare but
+        # possible across grab attempts) collapse cleanly.
+        episodes = sorted({
+            ep_num
+            for r in group
+            if (ep_num := (r.raw.get("episode") or {}).get("episodeNumber")) is not None
+        })
+
+        title = _format_season_title(series, season, episodes, n)
+        first_episode = episodes[0] if len(episodes) == 1 else None
 
         return PendingItem(
             id=item_id,
@@ -219,8 +269,9 @@ class Poller:
             title=title,
             series_title=series,
             season=season,
-            episode=None,
+            episode=first_episode,
             episode_count=n,
+            episodes=episodes,
             tvdb_id=media.get("tvdbId"),
             tmdb_id=media.get("tmdbId"),
             imdb_id=media.get("imdbId"),
@@ -235,11 +286,12 @@ class Poller:
         )
 
     async def _regenerate_poster(self, item: PendingItem, record: QueueRecord) -> None:
-        # Build a one-line subtitle: download source + total size, e.g. "12 Folgen · 24.3 GB"
+        # Build a one-line subtitle. Show explicit episode list when small,
+        # collapse to a count when long, so the poster stays readable.
         size_gb = item.size_total_bytes / 1024**3
-        if item.type == "tv" and item.episode_count > 1:
-            ep_word = "Folge" if item.episode_count == 1 else "Folgen"
-            subtitle = f"{item.episode_count} {ep_word}  ·  {size_gb:.1f} GB"
+        ep_list = _format_episode_list(item.episodes)
+        if ep_list:
+            subtitle = f"{ep_list}  ·  {size_gb:.1f} GB"
         elif size_gb >= 0.1:
             subtitle = f"{size_gb:.1f} GB"
         else:
@@ -319,3 +371,31 @@ def _art_url(record: QueueRecord) -> str | None:
         if img.get("coverType") == "poster":
             return img.get("remoteUrl") or img.get("url")
     return None
+
+
+def _format_episode_list(episodes: list[int]) -> str:
+    """'E04' / 'E04+E05+E06' / 'E04–E10 (7 Folgen)' depending on count.
+
+    The dense compact ranges keep the poster legible even for full-season packs."""
+    if not episodes:
+        return ""
+    if len(episodes) == 1:
+        return f"E{episodes[0]:02d}"
+    if len(episodes) <= 4:
+        return "+".join(f"E{e:02d}" for e in episodes)
+    return f"E{episodes[0]:02d}–E{episodes[-1]:02d} ({len(episodes)} Folgen)"
+
+
+def _format_season_title(
+    series: str, season: int | None, episodes: list[int], total_count: int
+) -> str:
+    """'Series — S01E04' / 'Series — S01 · E04+E05' / 'Series — S01 · E01–E12 (12 Folgen)'."""
+    if season is None:
+        word = "Folge" if total_count == 1 else "Folgen"
+        return f"{series} ({total_count} {word})"
+    if len(episodes) == 1:
+        return f"{series} — S{season:02d}E{episodes[0]:02d}"
+    if episodes:
+        return f"{series} — S{season:02d} · {_format_episode_list(episodes)}"
+    word = "Folge" if total_count == 1 else "Folgen"
+    return f"{series} — Staffel {season} ({total_count} {word})"

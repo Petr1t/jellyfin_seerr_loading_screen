@@ -26,6 +26,7 @@ class PendingItem(BaseModel):
     season: int | None = None
     episode: int | None = None
     episode_count: int = Field(1, description="Number of episodes aggregated into this item (1 for movies)")
+    episodes: list[int] = Field(default_factory=list, description="Sorted episode numbers in this aggregation; empty for movies")
 
     tmdb_id: int | None = None
     tvdb_id: int | None = None

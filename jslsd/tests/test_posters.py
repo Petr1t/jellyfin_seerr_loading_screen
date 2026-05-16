@@ -75,7 +75,30 @@ async def test_generate_placeholder_fallback(cache_dir: Path) -> None:
     )
     assert out_path.exists()
     img = Image.open(out_path)
-    assert img.size == (400, 600)
+    assert img.size == (600, 900)
+    await gen.aclose()
+
+
+async def test_generate_info_tile(cache_dir: Path) -> None:
+    gen = PosterGenerator(cache_dir=cache_dir)
+    out_path = await gen.generate_info_tile(
+        item_id="sonarr-12345",
+        kind="eta",
+        label="ETA",
+        value="12m",
+    )
+    assert out_path.exists()
+    assert out_path.stat().st_size > 0
+    img = Image.open(out_path)
+    assert img.size == (600, 900)
+
+    out_path2 = await gen.generate_info_tile(
+        item_id="sonarr-12345",
+        kind="eta",
+        label="ETA",
+        value="12m",
+    )
+    assert out_path == out_path2  # cache hit
     await gen.aclose()
 
 

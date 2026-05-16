@@ -42,7 +42,10 @@ class QueueRecord:
             "imported": "completed",
             "paused": "paused",
             "failed": "failed",
-            "warning": "failed",
+            # 'warning' covers stalled torrents and import-blocked items —
+            # Sonarr hasn't given up, the download just needs attention. Map
+            # to 'paused' (yellow) so the UI signals "stuck" not "dead".
+            "warning": "paused",
             "downloading": "downloading",
         }.get(st, "queued")
 
@@ -80,6 +83,7 @@ class ArrClient:
                     "pageSize": 200,
                     "includeUnknownMovieItems": "false",
                     "includeMovie": "true",
+                    "includeEpisode": "true",
                 },
             )
             r.raise_for_status()
@@ -99,6 +103,17 @@ class ArrClient:
 
     async def _fetch_media(self, queue_record: dict[str, Any]) -> dict[str, Any] | None:
         return None
+
+    async def blocklist_queue(self, queue_id: int) -> None:
+        """Remove a queue item and blocklist its release so Arr re-searches.
+        Raises httpx.HTTPError on failure."""
+        url = f"{self.base_url}/api/v3/queue/{queue_id}"
+        r = await self._client.delete(
+            url,
+            params={"removeFromClient": "true", "blocklist": "true"},
+            headers={"X-Api-Key": self.api_key, "Accept": "application/json"},
+        )
+        r.raise_for_status()
 
     async def _get(self, path: str, **kwargs: Any) -> httpx.Response:
         return await self._client.get(

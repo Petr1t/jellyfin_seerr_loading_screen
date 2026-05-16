@@ -24,7 +24,7 @@ class PosterGenerator:
     def __init__(
         self,
         cache_dir: Path,
-        size: tuple[int, int] = (400, 600),
+        size: tuple[int, int] = (600, 900),
         client: httpx.AsyncClient | None = None,
         accent_color: str = "#ff00d4",
         surface_color: str = "#101820",
@@ -121,52 +121,71 @@ class PosterGenerator:
         img = base.copy().convert("RGBA")
         w, h = img.size
 
-        # Gradient scrim along the bottom third for legibility — top transparent,
-        # bottom near-opaque using configured surface_color.
-        scrim_h = int(h * 0.42)
+        # Font sizes scale with the shortest side so the layout looks the same
+        # whether the poster is 400×600 (legacy) or 600×900 (new default).
+        unit = min(w, h) / 600.0
+        f_title = _font(int(38 * unit))
+        f_pct = _font(int(72 * unit))   # main progress number — was 22, now huge
+        f_eta = _font(int(44 * unit))   # ETA — was 18, now reads at thumbnail size
+        f_sub = _font(int(22 * unit))
+        f_badge = _font(int(26 * unit))
+
+        # Bigger scrim — the bottom half needs to fit a much larger ETA + %.
+        scrim_h = int(h * 0.55)
         scrim = Image.new("RGBA", (w, scrim_h), (0, 0, 0, 0))
         sr, sg, sb = self.surface_rgb
         for y in range(scrim_h):
-            alpha = int(235 * (y / scrim_h) ** 1.6)
+            alpha = int(245 * (y / scrim_h) ** 1.4)
             ImageDraw.Draw(scrim).line([(0, y), (w, y)], fill=(sr, sg, sb, alpha))
         img.paste(scrim, (0, h - scrim_h), scrim)
 
         d = ImageDraw.Draw(img)
-        font_lg = _font(30)
-        font_md = _font(22)
-        font_sm = _font(18)
+        pad = int(40 * unit)
 
         # Status badge top-right
         badge_text, badge_color = _status_badge(status)
-        bbox = d.textbbox((0, 0), badge_text, font=font_sm)
+        bbox = d.textbbox((0, 0), badge_text, font=f_badge)
         bw = bbox[2] - bbox[0]
         bh = bbox[3] - bbox[1]
-        bx, by = w - bw - 28, 16
+        bx = w - bw - pad
+        by = pad - int(8 * unit)
         d.rounded_rectangle(
-            [bx - 12, by - 6, bx + bw + 12, by + bh + 10], radius=10, fill=badge_color
+            [bx - int(16 * unit), by - int(8 * unit),
+             bx + bw + int(16 * unit), by + bh + int(14 * unit)],
+            radius=int(14 * unit), fill=badge_color
         )
-        d.text((bx, by), badge_text, fill=(255, 255, 255), font=font_sm)
+        d.text((bx, by), badge_text, fill=(255, 255, 255), font=f_badge)
 
-        # Title (auto-wrap to 2 lines)
-        title_lines = _wrap_title(title, font_lg, w - 64, d)
-        line_h = font_lg.size + 6
-        title_top = h - 168 - (len(title_lines) - 1) * line_h
-        for i, line in enumerate(title_lines):
+        # Bottom block layout (bottom-up):
+        #   |  72% (huge)            ETA 12m (huge)  |  ← progress row
+        #   |======== progress bar ================  |
+        #   |  subtitle (12 Folgen · 24.3 GB)        |
+        #   |  title (auto-wrap 2 lines)             |
+        bar_h = int(44 * unit)
+        bar_gap = int(28 * unit)
+        bottom_margin = pad + int(8 * unit)
+        progress_row_h = max(f_pct.size, f_eta.size)
+        bar_y1 = h - bottom_margin - progress_row_h - bar_gap
+        bar_y0 = bar_y1 - bar_h
+        bar_x0, bar_x1 = pad, w - pad
+        bar_radius = bar_h // 2
+
+        # Big progress row UNDER the bar
+        pct_y = bar_y1 + bar_gap
+        pct_text = f"{progress_percent:.0f}%"
+        d.text((pad, pct_y), pct_text, fill=(255, 255, 255), font=f_pct)
+
+        if eta_seconds is not None:
+            eta_text = f"ETA  {_human_eta(eta_seconds)}"
+            ebbox = d.textbbox((0, 0), eta_text, font=f_eta)
+            ew = ebbox[2] - ebbox[0]
+            eta_y = pct_y + (f_pct.size - f_eta.size) // 2
             d.text(
-                (32, title_top + i * line_h),
-                line,
-                fill=(255, 255, 255),
-                font=font_lg,
+                (w - ew - pad, eta_y),
+                eta_text,
+                fill=(245, 245, 245),
+                font=f_eta,
             )
-
-        # Subtitle (e.g. "12 Folgen · Sonarr")
-        if subtitle:
-            d.text((32, h - 130), subtitle, fill=(210, 210, 210), font=font_sm)
-
-        # Big progress bar — 24px tall, with accent glow.
-        bar_x0, bar_x1 = 32, w - 32
-        bar_y0, bar_y1 = h - 92, h - 68
-        bar_radius = 12
 
         # Track (dark, inset)
         d.rounded_rectangle(
@@ -179,42 +198,111 @@ class PosterGenerator:
 
         fill_width = int((bar_x1 - bar_x0) * (progress_percent / 100.0))
         if fill_width > bar_radius * 2:
-            # Soft glow under the fill — same accent, very translucent
             ar, ag, ab = self.accent_rgb
             glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
             gd = ImageDraw.Draw(glow)
             gd.rounded_rectangle(
-                [bar_x0 - 6, bar_y0 - 6, bar_x0 + fill_width + 6, bar_y1 + 6],
-                radius=bar_radius + 6,
-                fill=(ar, ag, ab, 110),
+                [bar_x0 - 8, bar_y0 - 8, bar_x0 + fill_width + 8, bar_y1 + 8],
+                radius=bar_radius + 8,
+                fill=(ar, ag, ab, 120),
             )
-            glow = glow.filter(ImageFilter.GaussianBlur(radius=8))
+            glow = glow.filter(ImageFilter.GaussianBlur(radius=10))
             img = Image.alpha_composite(img, glow)
             d = ImageDraw.Draw(img)
 
-            # Solid fill
             d.rounded_rectangle(
                 [bar_x0, bar_y0, bar_x0 + fill_width, bar_y1],
                 radius=bar_radius,
                 fill=(ar, ag, ab, 255),
             )
 
-        # Bottom row: big percent on the left, ETA on the right
-        pct_text = f"{progress_percent:.0f}%"
-        d.text((32, h - 56), pct_text, fill=(255, 255, 255), font=font_md)
+        # Subtitle just above the bar
+        sub_y = bar_y0 - int(36 * unit)
+        if subtitle:
+            d.text((pad, sub_y), subtitle, fill=(215, 215, 215), font=f_sub)
+            title_baseline = sub_y - int(12 * unit)
+        else:
+            title_baseline = bar_y0 - int(16 * unit)
 
-        if eta_seconds is not None:
-            eta_text = f"ETA  {_human_eta(eta_seconds)}"
-            ebbox = d.textbbox((0, 0), eta_text, font=font_sm)
-            ew = ebbox[2] - ebbox[0]
+        # Title (auto-wrap, anchored above subtitle)
+        title_lines = _wrap_title(title, f_title, w - 2 * pad, d)
+        line_h = f_title.size + int(8 * unit)
+        title_top = title_baseline - len(title_lines) * line_h
+        for i, line in enumerate(title_lines):
             d.text(
-                (w - ew - 32, h - 50),
-                eta_text,
-                fill=(220, 220, 220),
-                font=font_sm,
+                (pad, title_top + i * line_h),
+                line,
+                fill=(255, 255, 255),
+                font=f_title,
             )
 
         return img.convert("RGB")
+
+    async def generate_info_tile(
+        self,
+        item_id: str,
+        kind: str,
+        label: str,
+        value: str,
+        accent: tuple[int, int, int] | None = None,
+    ) -> Path:
+        """Render a single info tile (label + big value) used for the
+        sub-folder detail view. Cached by (item_id, kind, value)."""
+        slug = "".join(c if c.isalnum() else "_" for c in value)[:40]
+        cache_key = f"{safe_filename_id(item_id)}__tile_{kind}_{slug}.png"
+        out_path = self.cache_dir / cache_key
+        if out_path.exists() and out_path.stat().st_size > 0:
+            return out_path
+
+        w, h = self.size
+        unit = min(w, h) / 600.0
+        bg = self.surface_rgb
+        accent_rgb = accent or self.accent_rgb
+
+        img = Image.new("RGB", (w, h), color=bg)
+        d = ImageDraw.Draw(img)
+
+        # Top accent stripe
+        d.rectangle([0, 0, w, int(8 * unit)], fill=accent_rgb)
+
+        f_label = _font(int(34 * unit))
+        f_value = _font(int(96 * unit))
+
+        # Label centred at the top third
+        lb = d.textbbox((0, 0), label, font=f_label)
+        lw = lb[2] - lb[0]
+        d.text(
+            ((w - lw) // 2, int(80 * unit)),
+            label.upper(),
+            fill=(200, 200, 210),
+            font=f_label,
+        )
+
+        # Value centred in the middle — auto-shrinks if too wide
+        f_actual = f_value
+        for size in (96, 84, 72, 60, 48, 40):
+            f_actual = _font(int(size * unit))
+            vb = d.textbbox((0, 0), value, font=f_actual)
+            if vb[2] - vb[0] <= w - int(48 * unit):
+                break
+        vb = d.textbbox((0, 0), value, font=f_actual)
+        vw = vb[2] - vb[0]
+        vh = vb[3] - vb[1]
+        d.text(
+            ((w - vw) // 2, (h - vh) // 2),
+            value,
+            fill=(255, 255, 255),
+            font=f_actual,
+        )
+
+        tmp_path = out_path.with_suffix(out_path.suffix + f".tmp.{os.getpid()}")
+        try:
+            img.save(tmp_path, format="PNG", optimize=True)
+            os.replace(tmp_path, out_path)
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
+        return out_path
 
 
 def safe_filename_id(item_id: str) -> str:
@@ -259,34 +347,35 @@ def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
 
 
 def _wrap_title(text: str, font: ImageFont.ImageFont, max_width: int, d: ImageDraw.ImageDraw) -> list[str]:
-    """Naive word-wrap to at most 2 lines, last line truncated with ellipsis."""
+    """Word-wrap to at most 2 lines; only add ellipsis if something is truncated."""
     words = text.split()
     lines: list[str] = []
     current = ""
+    used = 0
     for word in words:
         candidate = f"{current} {word}".strip()
         bbox = d.textbbox((0, 0), candidate, font=font)
         if bbox[2] - bbox[0] <= max_width:
             current = candidate
+            used += 1
         else:
             if current:
                 lines.append(current)
+                current = ""
+                if len(lines) >= 2:
+                    break
             current = word
-            if len(lines) >= 1:
-                break
-    if current:
+            used += 1
+    if current and len(lines) < 2:
         lines.append(current)
-    # Hard-truncate if still >2 lines worth
-    if len(lines) > 2:
-        lines = lines[:2]
-    # Ellipsis on last line if we ran out of space
-    if len(lines) == 2:
-        remaining_words = words[sum(len(line.split()) for line in lines):]
-        if remaining_words:
-            last = lines[1]
-            while d.textbbox((0, 0), last + "…", font=font)[2] > max_width and " " in last:
-                last = last.rsplit(" ", 1)[0]
-            lines[1] = last + "…"
+    elif current:
+        used -= 1  # last word didn't fit
+    # Ellipsis only if real overflow remains
+    if used < len(words) and len(lines) == 2:
+        last = lines[1]
+        while d.textbbox((0, 0), last + "…", font=font)[2] > max_width and " " in last:
+            last = last.rsplit(" ", 1)[0]
+        lines[1] = last + "…"
     return lines
 
 
