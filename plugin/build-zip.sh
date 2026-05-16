@@ -25,7 +25,7 @@ if [[ ! -f "$DLL" ]]; then
     exit 1
 fi
 
-(cd "bin/Release/net9.0" && zip -q "$DIST_DIR/$ZIP_NAME" "${PKG_NAME}.dll")
+(cd "bin/Release/net9.0" && python3 -m zipfile -c "$DIST_DIR/$ZIP_NAME" "${PKG_NAME}.dll")
 
 # Compute checksum (Jellyfin manifest requires md5)
 CHECKSUM=$(md5sum "$DIST_DIR/$ZIP_NAME" | awk '{print $1}')
