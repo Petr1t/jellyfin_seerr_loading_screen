@@ -14,6 +14,11 @@ on:
 jobs:
   test:
     runs-on: [self-hosted, linux, paradecentral]
+    # Self-hosted runner shares /home/pet with the host, where the user's
+    # site-packages bleeds into setup-python's isolated install. PYTHONNOUSERSITE
+    # blocks that so CI sees only what the workflow installed.
+    env:
+      PYTHONNOUSERSITE: "1"
     strategy:
       matrix:
         # Single version (3.12) — paradecentral runs 3.12, 3.11 matrix-cell
