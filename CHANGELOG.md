@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] — 2026-05-16
+
+### Plugin
+
+#### Fixed
+- **Empty-channel cache lock.** When the daemon's queue went to 0 items (e.g. user blocklisted the only pending item), `GetCacheKey` kept returning the SHA1-of-empty hash and Jellyfin's per-channel cache short-circuited every subsequent request before `GetChannelItems` could run. The channel then stayed empty forever even as new downloads were added to Sonarr/Radarr — only a Jellyfin restart or plugin reload broke the lock. Now a `CacheKeyRefreshService` (`IHostedService`) polls the daemon on the user-configured `RefreshIntervalSeconds` cadence and updates `_lastDataVersion` directly, so Jellyfin's cache invalidates as soon as the daemon sees new pending items.
+
+#### Changed
+- `SeerrLoadingScreenChannel` is now registered as a singleton in its own right and forwarded as `IChannel`, so the hosted refresh service can inject the concrete instance and share `_lastDataVersion` with the channel Jellyfin uses.
+
 ## [0.2.3] — 2026-05-16
 
 ### Plugin
