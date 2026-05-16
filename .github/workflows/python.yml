@@ -13,6 +13,11 @@ on:
 
 jobs:
   test:
+    # Belt-and-suspenders against fork-PR code execution on the self-hosted
+    # runner: even if GitHub's "Require approval for all external contributors"
+    # gate is ever bypassed/misconfigured, the job is skipped for any PR whose
+    # head is in a different repo than this one. Pushes and same-repo PRs run.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, paradecentral]
     # Self-hosted runner shares /home/pet with the host, where the user's
     # site-packages bleeds into setup-python's isolated install. PYTHONNOUSERSITE
