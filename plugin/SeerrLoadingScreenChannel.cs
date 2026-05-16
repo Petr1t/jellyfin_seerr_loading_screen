@@ -71,6 +71,47 @@ public class SeerrLoadingScreenChannel : IChannel, IHasCacheKey
     /// </summary>
     public string GetCacheKey(string? userId) => _lastDataVersion;
 
+    /// <summary>
+    /// Refresh <see cref="_lastDataVersion"/> from the daemon without rendering items.
+    /// Called by <see cref="CacheKeyRefreshService"/> on a timer so the cache key
+    /// changes even when no client has requested the channel since the last empty
+    /// listing — which otherwise locks the channel into a permanent
+    /// "0 items, empty hash" state.
+    /// </summary>
+    internal async Task RefreshCacheVersionAsync(CancellationToken ct)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(5));
+
+        IReadOnlyList<PendingItem> pending;
+        try
+        {
+            pending = await _daemon.ListAsync(cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        // Hash the raw daemon response, not a per-user filtered subset:
+        // - covers ShowAllUsers=true (the common case) exactly
+        // - for ShowAllUsers=false, may trigger a re-fetch when a different
+        //   user's items change, which costs one extra GetChannelItems call
+        //   but is correct (a per-user-filtered hash here would need a userId
+        //   we don't have outside a request).
+        var newVersion = HashPending(pending);
+        if (!string.Equals(_lastDataVersion, newVersion, StringComparison.Ordinal))
+        {
+            _log.LogDebug("Cache key refresh: {Old} -> {New} ({Count} items)",
+                _lastDataVersion, newVersion, pending.Count);
+            _lastDataVersion = newVersion;
+        }
+    }
+
     public async Task<ChannelItemResult> GetChannelItems(
         InternalChannelItemQuery query,
         CancellationToken ct)
