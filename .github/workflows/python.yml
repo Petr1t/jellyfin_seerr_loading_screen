@@ -16,7 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.11', '3.12']
+        # Single version (3.12) — paradecentral runs 3.12, 3.11 matrix-cell
+        # was costing CI minutes without catching anything we ship against.
+        python-version: ['3.12']
 
     steps:
       - uses: actions/checkout@v4
