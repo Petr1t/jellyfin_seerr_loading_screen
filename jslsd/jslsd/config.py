@@ -43,8 +43,12 @@ class Config(BaseModel):
     completed_retention_seconds: int = 300
     failed_retention_seconds: int = 3600
 
-    accent_color: str = Field("#ff00d4", description="Hex colour for progress bar fill (matches Jellyfin theme accent)")
-    surface_color: str = Field("#101820", description="Hex colour for dark scrim behind text/bar")
+    accent_color: str = Field(
+        "#ff00d4", description="Hex colour for progress bar fill (Jellyfin accent)"
+    )
+    surface_color: str = Field(
+        "#101820", description="Hex colour for dark scrim behind text/bar"
+    )
 
     demo_mode: bool = False
 

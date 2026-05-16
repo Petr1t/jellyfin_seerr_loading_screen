@@ -346,7 +346,9 @@ def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
     return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
 
 
-def _wrap_title(text: str, font: ImageFont.ImageFont, max_width: int, d: ImageDraw.ImageDraw) -> list[str]:
+def _wrap_title(
+    text: str, font: ImageFont.ImageFont, max_width: int, d: ImageDraw.ImageDraw
+) -> list[str]:
     """Word-wrap to at most 2 lines; only add ellipsis if something is truncated."""
     words = text.split()
     lines: list[str] = []
