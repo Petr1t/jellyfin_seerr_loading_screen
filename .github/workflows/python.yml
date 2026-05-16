@@ -37,13 +37,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      # `python -m` invocation works regardless of PATH — on the self-hosted
+      # runner, setup-python's bin dir is sometimes not on PATH for shell steps.
       - name: Lint
         working-directory: jslsd
-        run: ruff check .
+        run: python -m ruff check .
 
       - name: Test
         working-directory: jslsd
-        run: pytest -v --tb=short
+        run: python -m pytest -v --tb=short
 
       - name: Build wheel
         working-directory: jslsd
