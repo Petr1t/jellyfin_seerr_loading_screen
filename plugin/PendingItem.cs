@@ -1,3 +1,4 @@
+using System;
 using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.SeerrLoadingScreen;
@@ -24,5 +25,6 @@ public class PendingItem
     [JsonPropertyName("download_client")] public string DownloadClient { get; set; } = string.Empty;
     [JsonPropertyName("status")] public string Status { get; set; } = string.Empty;
     [JsonPropertyName("requested_by")] public string? RequestedBy { get; set; }
+    [JsonPropertyName("requested_at")] public DateTime? RequestedAt { get; set; }
     [JsonPropertyName("poster_url")] public string PosterUrl { get; set; } = string.Empty;
 }

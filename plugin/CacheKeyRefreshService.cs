@@ -22,16 +22,19 @@ namespace Jellyfin.Plugin.SeerrLoadingScreen;
 /// </summary>
 public class CacheKeyRefreshService : IHostedService, IAsyncDisposable
 {
-    private readonly SeerrLoadingScreenChannel _channel;
+    private readonly SeerrLoadingScreenChannel[] _channels;
     private readonly ILogger<CacheKeyRefreshService> _log;
     private CancellationTokenSource? _cts;
     private Task? _loop;
 
     public CacheKeyRefreshService(
-        SeerrLoadingScreenChannel channel,
+        SeerrLoadingScreenChannel comingSoon,
+        NotFoundChannel notFound,
         ILogger<CacheKeyRefreshService> log)
     {
-        _channel = channel;
+        // Both channels hold their own cache key over their own subset of the
+        // daemon's items, so each needs its own tick.
+        _channels = new SeerrLoadingScreenChannel[] { comingSoon, notFound };
         _log = log;
     }
 
@@ -110,7 +113,10 @@ public class CacheKeyRefreshService : IHostedService, IAsyncDisposable
 
             try
             {
-                await _channel.RefreshCacheVersionAsync(ct).ConfigureAwait(false);
+                foreach (var channel in _channels)
+                {
+                    await channel.RefreshCacheVersionAsync(ct).ConfigureAwait(false);
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

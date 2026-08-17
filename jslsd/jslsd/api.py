@@ -37,8 +37,11 @@ def create_app(config: Config | None = None) -> FastAPI:
 
     @app.get("/api/coming-soon", response_model=list[PendingItem])
     async def list_coming_soon(
-        source: str | None = Query(None, pattern="^(sonarr|radarr)$"),
-        status: str | None = Query(None, pattern="^(queued|downloading|completed|failed|paused)$"),
+        source: str | None = Query(None, pattern="^(sonarr|radarr|seerr)$"),
+        status: str | None = Query(
+            None,
+            pattern="^(queued|downloading|completed|failed|paused|searching|not_found)$",
+        ),
         requested_by: str | None = Query(None),
     ) -> list[PendingItem]:
         items = poller.items
@@ -59,6 +62,8 @@ def create_app(config: Config | None = None) -> FastAPI:
             "paused": 2,
             "completed": 3,
             "failed": 4,
+            "searching": 5,
+            "not_found": 6,
         }
         items.sort(
             key=lambda i: (
@@ -131,6 +136,8 @@ _STATUS_ACCENT: dict[str, tuple[int, int, int]] = {
     "completed": (30, 144, 255),
     "failed": (220, 60, 60),
     "paused": (200, 160, 60),
+    "searching": (100, 140, 200),
+    "not_found": (90, 90, 100),
 }
 
 _STATUS_LABEL: dict[str, str] = {
@@ -139,6 +146,8 @@ _STATUS_LABEL: dict[str, str] = {
     "completed": "READY",
     "failed": "FAILED",
     "paused": "PAUSED",
+    "searching": "SUCHT…",
+    "not_found": "NICHT GEFUNDEN",
 }
 
 
@@ -152,6 +161,8 @@ def _tile_spec(
         return ("Status", _STATUS_LABEL.get(item.status, item.status.upper()),
                 _STATUS_ACCENT.get(item.status))
     if kind == "progress":
+        if item.status == "not_found":
+            return None
         return ("Fortschritt", f"{item.progress_percent:.0f}%", None)
     if kind == "eta":
         if item.eta_seconds is None:

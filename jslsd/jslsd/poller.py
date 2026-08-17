@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -13,7 +13,7 @@ from .arr_client import QueueRecord, RadarrClient, SonarrClient
 from .config import Config
 from .jellyseerr_client import JellyseerrClient
 from .models import PendingItem
-from .posters import PosterGenerator, safe_filename_id
+from .posters import PosterGenerator, poster_cache_key
 
 log = logging.getLogger(__name__)
 
@@ -87,7 +87,9 @@ class Poller:
         item = self._cache.get(item_id)
         if not item:
             return None
-        cache_key = f"{safe_filename_id(item.id)}__p{item.progress_bucket:03d}__{item.status}.png"
+        cache_key = poster_cache_key(
+            item.id, item.progress_percent, item.status, _age_days(item)
+        )
         return str((self.config.poster_cache_dir / cache_key).absolute())
 
     def inject(self, item: PendingItem) -> None:
@@ -139,12 +141,21 @@ class Poller:
 
         seen: set[str] = set()
         new_queue_map: dict[str, list[tuple[str, int]]] = {}
+        queue_items: list[PendingItem] = []
         for item, art_record, queue_records in await self._build_items(records):
             seen.add(item.id)
+            queue_items.append(item)
             self._cache[item.id] = item
             new_queue_map[item.id] = [(r.source, r.queue_id) for r in queue_records]
-            await self._regenerate_poster(item, art_record)
+            await self._regenerate_poster(item, _art_url(art_record))
         self._queue_ids_by_item = new_queue_map
+
+        # Requests that never made it into a queue. Never let a Seerr hiccup
+        # take down the queue view — it is the primary content.
+        for item, art_url in await self._build_missing_items(queue_items):
+            seen.add(item.id)
+            self._cache[item.id] = item
+            await self._regenerate_poster(item, art_url)
 
         self._evict_stale(seen)
         self.last_poll = datetime.now().astimezone()
@@ -182,6 +193,84 @@ class Poller:
         for (series_id, season), group in groups.items():
             item = await self._aggregate_season(series_id, season, group)
             out.append((item, group[0], group))
+
+        return out
+
+    async def _build_missing_items(
+        self, queue_items: list[PendingItem]
+    ) -> list[tuple[PendingItem, str | None]]:
+        """Approved Jellyseerr requests with nothing in any queue.
+
+        Radarr/Sonarr never report "gave up" — they keep searching silently.
+        These items close that gap: within the grace period they read as
+        'searching', afterwards as 'not_found'.
+        """
+        if not self._seerr or not self.config.show_missing_requests:
+            return []
+
+        try:
+            requests = await self._seerr.list_requests()
+        except (httpx.HTTPError, ValueError) as e:
+            log.warning("Jellyseerr request listing failed: %s", e)
+            return []
+
+        queued_tmdb = {i.tmdb_id for i in queue_items if i.tmdb_id}
+        queued_tvdb = {i.tvdb_id for i in queue_items if i.tvdb_id}
+
+        now = datetime.now(UTC)
+        out: list[tuple[PendingItem, str | None]] = []
+
+        for req in requests:
+            if not _is_missing(req):
+                continue
+            media = req.get("media") or {}
+            tmdb_id = media.get("tmdbId")
+            tvdb_id = media.get("tvdbId")
+            # The queue is the better source for anything it already knows.
+            if (tmdb_id and tmdb_id in queued_tmdb) or (tvdb_id and tvdb_id in queued_tvdb):
+                continue
+
+            created = _parse_created_at(req.get("createdAt"))
+            if created is None:
+                continue
+            age_days = (now - created).days
+            if age_days > self.config.not_found_retention_days:
+                continue
+            status = "searching" if age_days <= self.config.searching_grace_days else "not_found"
+
+            media_type = "movie" if req.get("type") == "movie" else "tv"
+            details = await self._seerr.media_details(tmdb_id, media_type) if tmdb_id else {}
+            title = details.get("title") or f"tmdb {tmdb_id}"
+            seasons = sorted(
+                s["seasonNumber"] for s in req.get("seasons", []) if "seasonNumber" in s
+            )
+            if seasons:
+                tag = ", ".join(str(s) for s in seasons)
+                title = f"{title} — Staffel {tag}"
+
+            user = req.get("requestedBy") or {}
+            item_id = f"seerr-req-{req['id']}"
+            out.append((
+                PendingItem(
+                    id=item_id,
+                    source="seerr",
+                    type=media_type,
+                    # season/series_title stay unset: the season is already in
+                    # the title, and the poster would otherwise append it twice.
+                    title=title,
+                    tmdb_id=tmdb_id,
+                    tvdb_id=tvdb_id,
+                    progress_percent=0.0,
+                    eta_seconds=None,
+                    status=status,
+                    requested_by=(
+                        user.get("displayName") or user.get("username") or user.get("email")
+                    ),
+                    requested_at=created,
+                    poster_url=f"/api/poster/{item_id}.png",
+                ),
+                details.get("art_url"),
+            ))
 
         return out
 
@@ -285,7 +374,26 @@ class Poller:
             poster_url=f"/api/poster/{item_id}.png",
         )
 
-    async def _regenerate_poster(self, item: PendingItem, record: QueueRecord) -> None:
+    async def _regenerate_poster(self, item: PendingItem, art_url: str | None) -> None:
+        if item.source == "seerr":
+            age = _age_days(item) or 0
+            who = item.requested_by or "unbekannt"
+            plural = "Tag" if age == 1 else "Tagen"
+            try:
+                await self.posters.get_or_generate(
+                    item_id=item.id,
+                    progress_percent=0.0,
+                    eta_seconds=None,
+                    status=item.status,
+                    art_url=art_url,
+                    title=item.title,
+                    subtitle=f"Angefragt vor {age} {plural}  ·  von {who}",
+                    age_days=age,
+                )
+            except Exception:  # noqa: BLE001
+                log.exception("Poster generation failed for %s", item.id)
+            return
+
         # Build a one-line subtitle. Show explicit episode list when small,
         # collapse to a count when long, so the poster stays readable.
         size_gb = item.size_total_bytes / 1024**3
@@ -306,7 +414,7 @@ class Poller:
                 progress_percent=item.progress_percent,
                 eta_seconds=item.eta_seconds,
                 status=item.status,
-                art_url=_art_url(record),
+                art_url=art_url,
                 title=display_title,
                 subtitle=subtitle,
             )
@@ -371,6 +479,42 @@ def _art_url(record: QueueRecord) -> str | None:
         if img.get("coverType") == "poster":
             return img.get("remoteUrl") or img.get("url")
     return None
+
+
+# Jellyseerr MediaStatus / RequestStatus constants.
+_MEDIA_UNKNOWN, _MEDIA_PENDING, _MEDIA_PROCESSING = 1, 2, 3
+_MEDIA_AVAILABLE = 5
+_REQUEST_APPROVED = 2
+
+
+def _is_missing(req: dict[str, Any]) -> bool:
+    """Approved request whose media never arrived. Mirrors media-alerts'
+    stuck_requests.is_stuck() minus the age check (handled by the caller)."""
+    if req.get("status") != _REQUEST_APPROVED:
+        return False
+    status = (req.get("media") or {}).get("status")
+    if req.get("type") == "movie":
+        return status != _MEDIA_AVAILABLE
+    # Series: PARTIALLY_AVAILABLE is the normal state of a running season and
+    # would be a permanent false alarm.
+    return status in (_MEDIA_UNKNOWN, _MEDIA_PENDING, _MEDIA_PROCESSING)
+
+
+def _parse_created_at(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _age_days(item: PendingItem) -> int | None:
+    """Days since the Jellyseerr request; None for queue-sourced items."""
+    if item.requested_at is None:
+        return None
+    return (datetime.now(UTC) - item.requested_at).days
 
 
 def _format_episode_list(episodes: list[int]) -> str:

@@ -19,6 +19,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Display name of the virtual library that hosts pending items.</summary>
     public string VirtualLibraryName { get; set; } = "📥 Coming Soon";
 
+    /// <summary>Display name of the second virtual library, listing requests without a release.</summary>
+    public string NotFoundLibraryName { get; set; } = "🔍 Leider nicht gefunden";
+
     /// <summary>If true, hide items that have completed (vs showing them with READY badge for 5min).</summary>
     public bool HideCompleted { get; set; } = false;
 }

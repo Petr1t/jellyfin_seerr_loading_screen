@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 
 import httpx
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 
 log = logging.getLogger(__name__)
 
@@ -51,10 +51,11 @@ class PosterGenerator:
         art_url: str | None,
         title: str,
         subtitle: str | None = None,
+        age_days: int | None = None,
     ) -> Path:
-        bucket = int(progress_percent // 5) * 5
-        cache_key = f"{safe_filename_id(item_id)}__p{bucket:03d}__{status}.png"
-        out_path = self.cache_dir / cache_key
+        out_path = self.cache_dir / poster_cache_key(
+            item_id, progress_percent, status, age_days
+        )
 
         if out_path.exists() and out_path.stat().st_size > 0:
             return out_path
@@ -118,7 +119,13 @@ class PosterGenerator:
         title: str,
         subtitle: str | None = None,
     ) -> Image.Image:
-        img = base.copy().convert("RGBA")
+        if status == "not_found":
+            # Desaturate + darken: the item reads as "given up on" at a glance,
+            # even in a grid of live downloads.
+            faded = ImageEnhance.Brightness(ImageOps.grayscale(base).convert("RGB"))
+            img = faded.enhance(0.55).convert("RGBA")
+        else:
+            img = base.copy().convert("RGBA")
         w, h = img.size
 
         # Font sizes scale with the shortest side so the layout looks the same
@@ -156,6 +163,38 @@ class PosterGenerator:
         )
         d.text((bx, by), badge_text, fill=(255, 255, 255), font=f_badge)
 
+        if status == "not_found":
+            # No progress to show — say plainly what happened instead.
+            f_msg = _font(int(46 * unit))
+            msg = "Leider nicht gefunden"
+            mb = d.textbbox((0, 0), msg, font=f_msg)
+            d.text(
+                ((w - (mb[2] - mb[0])) // 2, int(h * 0.62)),
+                msg,
+                fill=(255, 255, 255),
+                font=f_msg,
+            )
+            if subtitle:
+                sb_box = d.textbbox((0, 0), subtitle, font=f_sub)
+                d.text(
+                    ((w - (sb_box[2] - sb_box[0])) // 2, int(h * 0.62) + int(64 * unit)),
+                    subtitle,
+                    fill=(205, 205, 210),
+                    font=f_sub,
+                )
+            title_lines = _wrap_title(title, f_title, w - 2 * pad, d)
+            line_h = f_title.size + int(8 * unit)
+            title_top = h - pad - len(title_lines) * line_h
+            for i, line in enumerate(title_lines):
+                lb = d.textbbox((0, 0), line, font=f_title)
+                d.text(
+                    ((w - (lb[2] - lb[0])) // 2, title_top + i * line_h),
+                    line,
+                    fill=(235, 235, 235),
+                    font=f_title,
+                )
+            return img.convert("RGB")
+
         # Bottom block layout (bottom-up):
         #   |  72% (huge)            ETA 12m (huge)  |  ← progress row
         #   |======== progress bar ================  |
@@ -172,8 +211,12 @@ class PosterGenerator:
 
         # Big progress row UNDER the bar
         pct_y = bar_y1 + bar_gap
-        pct_text = f"{progress_percent:.0f}%"
-        d.text((pad, pct_y), pct_text, fill=(255, 255, 255), font=f_pct)
+        if status == "searching":
+            # Nothing is downloading yet — a 0% bar would read as "stuck".
+            d.text((pad, pct_y), "Suche läuft…", fill=(255, 255, 255), font=f_eta)
+        else:
+            pct_text = f"{progress_percent:.0f}%"
+            d.text((pad, pct_y), pct_text, fill=(255, 255, 255), font=f_pct)
 
         if eta_seconds is not None:
             eta_text = f"ETA  {_human_eta(eta_seconds)}"
@@ -188,13 +231,14 @@ class PosterGenerator:
             )
 
         # Track (dark, inset)
-        d.rounded_rectangle(
-            [bar_x0, bar_y0, bar_x1, bar_y1],
-            radius=bar_radius,
-            fill=(28, 28, 36),
-            outline=(255, 255, 255, 30),
-            width=1,
-        )
+        if status != "searching":
+            d.rounded_rectangle(
+                [bar_x0, bar_y0, bar_x1, bar_y1],
+                radius=bar_radius,
+                fill=(28, 28, 36),
+                outline=(255, 255, 255, 30),
+                width=1,
+            )
 
         fill_width = int((bar_x1 - bar_x0) * (progress_percent / 100.0))
         if fill_width > bar_radius * 2:
@@ -305,6 +349,19 @@ class PosterGenerator:
         return out_path
 
 
+def poster_cache_key(
+    item_id: str, progress_percent: float, status: str, age_days: int | None = None
+) -> str:
+    """Cache filename for one poster state.
+
+    age_days is part of the key for request-age items ('Angefragt vor N Tagen'),
+    so the rendered subtitle can't go stale while the item sits in the cache.
+    """
+    bucket = int(progress_percent // 5) * 5
+    suffix = f"__d{age_days}" if age_days is not None else ""
+    return f"{safe_filename_id(item_id)}__p{bucket:03d}__{status}{suffix}.png"
+
+
 def safe_filename_id(item_id: str) -> str:
     """Sanitise item_id for safe use in a filename."""
     h = hashlib.sha1(item_id.encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
@@ -336,6 +393,8 @@ def _status_badge(status: str) -> tuple[str, tuple[int, int, int, int]]:
         "completed": ("READY", (30, 144, 255, 220)),
         "failed": ("FAILED", (220, 60, 60, 220)),
         "paused": ("PAUSED", (200, 160, 60, 220)),
+        "searching": ("SUCHT…", (100, 140, 200, 220)),
+        "not_found": ("NICHT GEFUNDEN", (90, 90, 100, 230)),
     }.get(status, ("PENDING", (140, 140, 140, 220)))
 
 

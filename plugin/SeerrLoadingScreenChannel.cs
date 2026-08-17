@@ -15,26 +15,39 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SeerrLoadingScreen;
 
-/// <summary>Surfaces the jslsd daemon's queue as a Jellyfin channel.</summary>
+/// <summary>Surfaces the jslsd daemon's queue as a Jellyfin channel.
+///
+/// Also serves as the base for <see cref="NotFoundChannel"/>: everything except
+/// the channel name and the <see cref="Includes"/> filter is shared.</summary>
 public class SeerrLoadingScreenChannel : IChannel, IHasCacheKey
 {
-    private readonly DaemonClient _daemon;
-    private readonly ILogger<SeerrLoadingScreenChannel> _log;
+    private protected readonly DaemonClient _daemon;
+    private protected readonly ILogger _log;
     // Reset on every plugin reload so Jellyfin's channel cache is forced to
     // re-fetch at least once after a restart (the per-poll hash takes over
     // from there).
     private string _lastDataVersion = "boot-" + DateTime.UtcNow.Ticks.ToString();
 
     public SeerrLoadingScreenChannel(DaemonClient daemon, ILogger<SeerrLoadingScreenChannel> log)
+        : this(daemon, (ILogger)log)
+    {
+    }
+
+    // Subclasses pass their own ILogger<T> so log lines carry their category.
+    private protected SeerrLoadingScreenChannel(DaemonClient daemon, ILogger log)
     {
         _daemon = daemon;
         _log = log;
     }
 
-    public string Name =>
+    public virtual string Name =>
         Plugin.Instance?.Configuration.VirtualLibraryName ?? "Coming Soon";
 
-    public string Description => "Pending Sonarr/Radarr downloads with live progress.";
+    public virtual string Description => "Pending Sonarr/Radarr downloads with live progress.";
+
+    /// <summary>Which daemon items belong in this channel. Requests that were
+    /// never found live in their own channel, so they are excluded here.</summary>
+    protected virtual bool Includes(PendingItem p) => p.Status != "not_found";
 
     public string DataVersion => _lastDataVersion;
 
@@ -103,7 +116,7 @@ public class SeerrLoadingScreenChannel : IChannel, IHasCacheKey
         //   user's items change, which costs one extra GetChannelItems call
         //   but is correct (a per-user-filtered hash here would need a userId
         //   we don't have outside a request).
-        var newVersion = HashPending(pending);
+        var newVersion = HashPending(pending.Where(Includes));
         if (!string.Equals(_lastDataVersion, newVersion, StringComparison.Ordinal))
         {
             _log.LogDebug("Cache key refresh: {Old} -> {New} ({Count} items)",
@@ -131,7 +144,8 @@ public class SeerrLoadingScreenChannel : IChannel, IHasCacheKey
         // view instead of a blank page.
         if (!string.IsNullOrEmpty(query.FolderId)
             && (query.FolderId.StartsWith("sonarr-", StringComparison.Ordinal)
-                || query.FolderId.StartsWith("radarr-", StringComparison.Ordinal)))
+                || query.FolderId.StartsWith("radarr-", StringComparison.Ordinal)
+                || query.FolderId.StartsWith("seerr-", StringComparison.Ordinal)))
         {
             return await BuildDetailViewAsync(query.FolderId, ct).ConfigureAwait(false);
         }
@@ -167,6 +181,7 @@ public class SeerrLoadingScreenChannel : IChannel, IHasCacheKey
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
         var filtered = pending
+            .Where(Includes)
             .Where(p => !(config.HideCompleted && p.Status == "completed"))
             .Where(p => config.ShowAllUsers
                         || string.IsNullOrEmpty(p.RequestedBy)
@@ -272,8 +287,11 @@ public class SeerrLoadingScreenChannel : IChannel, IHasCacheKey
 
         Add("status", $"Status: {StatusLabel(p.Status)}",
             "Aktueller Zustand im Download-Client.");
+        // Nothing is downloading for a not-found request — the daemon returns
+        // no progress tile for it either.
         Add("progress", $"{p.ProgressPercent:F0}% fertig",
-            "Fortschritt basierend auf bereits heruntergeladenen Bytes.");
+            "Fortschritt basierend auf bereits heruntergeladenen Bytes.",
+            include: p.Status != "not_found");
         Add("eta", "ETA " + (p.EtaSeconds is { } e ? HumanEta(e) : "—"),
             "Geschätzte Restzeit laut Download-Client.", include: p.EtaSeconds is not null);
 
@@ -364,6 +382,8 @@ public class SeerrLoadingScreenChannel : IChannel, IHasCacheKey
         "completed" => "Fertig",
         "failed" => "Fehlgeschlagen",
         "paused" => "Pausiert",
+        "searching" => "Suche läuft",
+        "not_found" => "Nicht gefunden",
         _ => s,
     };
 
@@ -376,8 +396,16 @@ public class SeerrLoadingScreenChannel : IChannel, IHasCacheKey
     {
         var sb = new StringBuilder();
         sb.Append(StatusBadge(p.Status)).Append(" · ");
-        sb.AppendFormat("{0:F0}%", p.ProgressPercent);
-        if (p.EtaSeconds is { } eta) sb.Append(" · ETA ").Append(HumanEta(eta));
+        if (p.Status == "not_found")
+        {
+            sb.Append("Kein Release gefunden");
+            if (p.RequestedAt is { } at) sb.Append(" — Anfrage vom ").Append(at.ToString("dd.MM.yyyy"));
+        }
+        else
+        {
+            sb.AppendFormat("{0:F0}%", p.ProgressPercent);
+            if (p.EtaSeconds is { } eta) sb.Append(" · ETA ").Append(HumanEta(eta));
+        }
         if (!string.IsNullOrEmpty(p.RequestedBy)) sb.Append("\n\nRequested by ").Append(p.RequestedBy);
         if (!string.IsNullOrEmpty(p.DownloadClient)) sb.Append("\nVia ").Append(p.DownloadClient);
         return sb.ToString();
@@ -390,6 +418,8 @@ public class SeerrLoadingScreenChannel : IChannel, IHasCacheKey
         "completed" => "🔵 READY",
         "failed" => "🔴 FAILED",
         "paused" => "🟡 PAUSED",
+        "searching" => "🔍 Suche läuft",
+        "not_found" => "⚫ Nicht gefunden",
         _ => "⚪ PENDING",
     };
 

@@ -125,3 +125,45 @@ def test_human_eta_formats() -> None:
     assert _human_eta(3599) == "59m"
     assert _human_eta(3600) == "1h 0m"
     assert _human_eta(7330) == "2h 2m"
+
+
+async def test_generate_not_found_poster(cache_dir: Path) -> None:
+    gen = PosterGenerator(cache_dir=cache_dir)
+    out_path = await gen.get_or_generate(
+        item_id="seerr-req-42",
+        progress_percent=0.0,
+        eta_seconds=None,
+        status="not_found",
+        art_url=None,
+        title="Testfilm",
+        subtitle="Angefragt vor 9 Tagen  ·  von Pet",
+        age_days=9,
+    )
+    assert out_path.exists()
+    assert out_path.stat().st_size > 0
+    assert "not_found" in out_path.name
+    # Age is part of the key so the "vor N Tagen" subtitle can't go stale.
+    assert "__d9" in out_path.name
+    await gen.aclose()
+
+
+async def test_generate_searching_poster(cache_dir: Path) -> None:
+    gen = PosterGenerator(cache_dir=cache_dir)
+    out_path = await gen.get_or_generate(
+        item_id="seerr-req-43",
+        progress_percent=0.0,
+        eta_seconds=None,
+        status="searching",
+        art_url=None,
+        title="Testserie — Staffel 3",
+        subtitle="Angefragt vor 1 Tag  ·  von Pet",
+        age_days=1,
+    )
+    assert out_path.exists()
+    assert "searching" in out_path.name
+    await gen.aclose()
+
+
+def test_status_badge_missing_request_values() -> None:
+    assert _status_badge("searching")[0] == "SUCHT…"
+    assert _status_badge("not_found")[0] == "NICHT GEFUNDEN"

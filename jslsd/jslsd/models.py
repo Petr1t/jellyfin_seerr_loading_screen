@@ -18,7 +18,7 @@ class PendingItem(BaseModel):
     """
 
     id: str = Field(..., description="Stable ID: f'{source}-{queue_id}', e.g. 'sonarr-12345'")
-    source: Literal["sonarr", "radarr"]
+    source: Literal["sonarr", "radarr", "seerr"]
     type: Literal["movie", "tv"]
 
     title: str = Field(..., description="Canonical human-readable title")
@@ -43,12 +43,17 @@ class PendingItem(BaseModel):
     eta_seconds: int | None = None
 
     download_client: str = Field("", description="qbittorrent, deluge, sabnzbd, ...")
-    status: Literal["queued", "downloading", "completed", "failed", "paused"] = "queued"
+    status: Literal[
+        "queued", "downloading", "completed", "failed", "paused", "searching", "not_found"
+    ] = "queued"
 
     requested_by: str | None = Field(
         None, description="Jellyseerr username if available"
     )
     requested_by_jellyfin_id: str | None = None
+    requested_at: datetime | None = Field(
+        None, description="Jellyseerr request creation time (seerr-sourced items only)"
+    )
 
     poster_url: str = Field(
         ..., description="Path on jslsd to the overlay PNG, e.g. /api/poster/sonarr-12345.png"

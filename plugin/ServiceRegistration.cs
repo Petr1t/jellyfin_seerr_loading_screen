@@ -22,6 +22,8 @@ public class ServiceRegistration : IPluginServiceRegistrator
         services.AddHttpClient<DaemonClient>();
         services.AddSingleton<SeerrLoadingScreenChannel>();
         services.AddSingleton<IChannel>(sp => sp.GetRequiredService<SeerrLoadingScreenChannel>());
+        services.AddSingleton<NotFoundChannel>();
+        services.AddSingleton<IChannel>(sp => sp.GetRequiredService<NotFoundChannel>());
         services.AddHostedService<CacheKeyRefreshService>();
     }
 }

@@ -43,6 +43,16 @@ class Config(BaseModel):
     completed_retention_seconds: int = 300
     failed_retention_seconds: int = 3600
 
+    show_missing_requests: bool = Field(
+        True, description="Surface approved Jellyseerr requests that never reached a queue"
+    )
+    searching_grace_days: int = Field(
+        3, description="Days a missing request stays 'searching' before it counts as not found"
+    )
+    not_found_retention_days: int = Field(
+        30, description="Drop missing requests older than this many days"
+    )
+
     accent_color: str = Field(
         "#ff00d4", description="Hex colour for progress bar fill (Jellyfin accent)"
     )
@@ -83,6 +93,9 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "JSLSD_API_LISTEN_HOST": ("api_listen_host",),
         "JSLSD_API_LISTEN_PORT": ("api_listen_port",),
         "JSLSD_POSTER_CACHE_DIR": ("poster_cache_dir",),
+        "JSLSD_SHOW_MISSING_REQUESTS": ("show_missing_requests",),
+        "JSLSD_SEARCHING_GRACE_DAYS": ("searching_grace_days",),
+        "JSLSD_NOT_FOUND_RETENTION_DAYS": ("not_found_retention_days",),
     }
 
     for env_key, path in mapping.items():

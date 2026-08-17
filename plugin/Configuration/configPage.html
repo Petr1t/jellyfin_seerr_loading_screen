@@ -43,6 +43,13 @@
                     <input is="emby-input" type="text" id="VirtualLibraryName" required />
                 </div>
 
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="NotFoundLibraryName">
+                        Library name for requests without a release
+                    </label>
+                    <input is="emby-input" type="text" id="NotFoundLibraryName" required />
+                </div>
+
                 <div class="checkboxContainer">
                     <label>
                         <input type="checkbox" is="emby-checkbox" id="ShowAllUsers" />
@@ -77,6 +84,7 @@
                     document.querySelector('#DaemonUrl').value = config.DaemonUrl;
                     document.querySelector('#RefreshIntervalSeconds').value = config.RefreshIntervalSeconds;
                     document.querySelector('#VirtualLibraryName').value = config.VirtualLibraryName;
+                    document.querySelector('#NotFoundLibraryName').value = config.NotFoundLibraryName;
                     document.querySelector('#ShowAllUsers').checked = config.ShowAllUsers;
                     document.querySelector('#HideCompleted').checked = config.HideCompleted;
                     Dashboard.hideLoadingMsg();
@@ -92,6 +100,7 @@
                     config.RefreshIntervalSeconds =
                         parseInt(document.querySelector('#RefreshIntervalSeconds').value, 10);
                     config.VirtualLibraryName = document.querySelector('#VirtualLibraryName').value;
+                    config.NotFoundLibraryName = document.querySelector('#NotFoundLibraryName').value;
                     config.ShowAllUsers = document.querySelector('#ShowAllUsers').checked;
                     config.HideCompleted = document.querySelector('#HideCompleted').checked;
                     ApiClient.updatePluginConfiguration(SeerrLoadingScreenPluginId, config)

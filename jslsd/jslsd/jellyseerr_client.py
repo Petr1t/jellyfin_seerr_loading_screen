@@ -22,6 +22,7 @@ class JellyseerrClient:
         self._client = client
         self._cache: dict[tuple[int, str], dict[str, Any]] = {}
         self._negative_cache: dict[tuple[int, str], float] = {}
+        self._details_cache: dict[tuple[int, str], dict[str, Any]] = {}
 
     async def health(self) -> bool:
         try:
@@ -59,6 +60,42 @@ class JellyseerrClient:
 
         self._negative_cache[key] = time.monotonic() + _NEGATIVE_TTL_SECONDS
         return None
+
+    async def list_requests(self) -> list[dict[str, Any]]:
+        """All requests Jellyseerr knows about. Raises on transport/parse errors."""
+        r = await self._get(
+            "/api/v1/request",
+            params={"take": 500, "skip": 0, "filter": "all"},
+        )
+        r.raise_for_status()
+        return r.json().get("results", [])
+
+    async def media_details(self, tmdb_id: int, media_type: str) -> dict[str, Any]:
+        """Title + poster URL for a tmdb id. Requests carry neither.
+
+        Cached per (tmdb_id, media_type) — details are static enough that one
+        lookup per daemon lifetime is plenty.
+        """
+        key = (tmdb_id, media_type)
+        if key in self._details_cache:
+            return self._details_cache[key]
+
+        kind = "movie" if media_type == "movie" else "tv"
+        details: dict[str, Any] = {"title": None, "art_url": None}
+        try:
+            r = await self._get(f"/api/v1/{kind}/{tmdb_id}")
+            r.raise_for_status()
+            data = r.json()
+            details["title"] = data.get("title") or data.get("name")
+            if poster := data.get("posterPath"):
+                details["art_url"] = (
+                    f"https://image.tmdb.org/t/p/w600_and_h900_bestv2{poster}"
+                )
+        except (httpx.HTTPError, ValueError) as e:
+            log.warning("Jellyseerr details lookup failed for tmdb=%s: %s", tmdb_id, e)
+
+        self._details_cache[key] = details
+        return details
 
     async def _get(self, path: str, **kwargs: Any) -> httpx.Response:
         return await self._client.get(
