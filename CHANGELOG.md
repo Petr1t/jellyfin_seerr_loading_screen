@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Daemon
+
+#### Added
+- Seerr requests without a queue entry now surface as synthetic items: `searching` while inside the grace window (`searching_grace_days`, default 3), `not_found` afterwards (dropped after `not_found_retention_days`, default 30). Detection logic mirrors approved-but-unavailable filtering (series with `PARTIALLY_AVAILABLE` excluded); queue items win via tmdb/tvdb dedupe. Kill switch `show_missing_requests`.
+- Posters for `not_found`: grayscale + darkened, "Leider nicht gefunden" with request age and requester; `searching` shows "Suche läuft…" instead of a progress bar.
+
+### Plugin
+
+#### Added
+- Second channel (default **🔍 Leider nicht gefunden**, configurable via `NotFoundLibraryName`) showing only `not_found` items; **📥 Coming Soon** filters them out and keeps `searching`.
+
 ## [0.2.4] — 2026-05-16
 
 ### Plugin
