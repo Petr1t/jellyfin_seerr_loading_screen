@@ -20,7 +20,7 @@ When you request a movie or TV show via Jellyseerr, it disappears into a black b
 
 **Daemon (Python `jslsd`)** — feature-complete. Polls Sonarr + Radarr `/api/v3/queue`, generates poster overlays with progress, exposes a JSON HTTP API. Runs as systemd-user-unit on your Arr host. 15 unit tests passing, smoke-tested against real Sonarr 4.0.17 + Radarr.
 
-**Jellyfin Plugin (.NET 9, Jellyfin 10.11)** — implements `IChannel` to expose pending downloads as a browseable channel inside Jellyfin. The channel auto-refreshes when the queue changes. Native iOS/Android/tvOS support via baked PNG progress posters (no JS overlay hacks).
+**Jellyfin Plugin (.NET 10, Jellyfin 12)** — implements `IChannel` to expose pending downloads as a browseable channel inside Jellyfin. The channel auto-refreshes when the queue changes. Native iOS/Android/tvOS support via baked PNG progress posters (no JS overlay hacks).
 
 [![Latest release](https://img.shields.io/github/v/release/Petr1t/jellyfin_seerr_loading_screen)](https://github.com/Petr1t/jellyfin_seerr_loading_screen/releases/latest)
 

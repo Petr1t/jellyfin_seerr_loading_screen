@@ -9,7 +9,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-VERSION="0.2.2"
+VERSION="0.3.0"
 DIST_DIR="$SCRIPT_DIR/dist"
 PKG_NAME="Jellyfin.Plugin.SeerrLoadingScreen"
 ZIP_NAME="${PKG_NAME}-${VERSION}.zip"
@@ -19,13 +19,13 @@ mkdir -p "$DIST_DIR"
 dotnet restore
 dotnet build -c Release -p:Version="${VERSION}" -p:AssemblyVersion="${VERSION}.0"
 
-DLL="bin/Release/net9.0/${PKG_NAME}.dll"
+DLL="bin/Release/net10.0/${PKG_NAME}.dll"
 if [[ ! -f "$DLL" ]]; then
     echo "build artifact missing: $DLL" >&2
     exit 1
 fi
 
-(cd "bin/Release/net9.0" && python3 -m zipfile -c "$DIST_DIR/$ZIP_NAME" "${PKG_NAME}.dll")
+(cd "bin/Release/net10.0" && python3 -m zipfile -c "$DIST_DIR/$ZIP_NAME" "${PKG_NAME}.dll")
 
 # Compute checksum (Jellyfin manifest requires md5)
 CHECKSUM=$(md5sum "$DIST_DIR/$ZIP_NAME" | awk '{print $1}')
@@ -38,9 +38,9 @@ cat > "$DIST_DIR/meta.json" <<JSON
   "description": "Show Sonarr/Radarr pending downloads as Jellyfin library items with live progress.",
   "owner": "Petr1t",
   "overview": "Surfaces Jellyseerr-requested media via Sonarr/Radarr queue as virtual Jellyfin library items with live progress overlay.",
-  "targetAbi": "10.11.0.0",
+  "targetAbi": "12.0.0.0",
   "version": "${VERSION}.0",
-  "changelog": "v${VERSION}: robustness pass — Channel listing now bounded by a 5s timeout against a hung daemon, smarter cache-key (state-hash, not timestamp) so refreshes only happen when items change. Daemon refactored: shared httpx client, ~200 LOC reduction. Verified end-to-end on Jellyfin 10.11.8.",
+  "changelog": "v${VERSION}: retarget to Jellyfin 12 (net10.0, Jellyfin.Controller/Model 12.0.0). No plugin source changes were required for the Jellyfin 12 API surface.",
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%S.0000000Z)",
   "checksum": "${CHECKSUM}",
   "sourceUrl": "https://github.com/Petr1t/jellyfin_seerr_loading_screen/releases/download/v${VERSION}/${ZIP_NAME}"

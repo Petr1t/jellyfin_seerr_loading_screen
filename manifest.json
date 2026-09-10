@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/Petr1t/jellyfin_seerr_loading_screen/main/assets/posters/sample-downloading-65pct.png",
     "versions": [
       {
+        "version": "0.3.0.0",
+        "changelog": "Retarget to Jellyfin 12 (.NET 10, targetAbi 12.0.0.0): bumped TargetFramework to net10.0 and Jellyfin.Controller/Jellyfin.Model to 12.0.0. No plugin source changes were required for the Jellyfin 12 API surface — build is clean with 0 warnings/0 errors. Not yet verified end-to-end against a running Jellyfin 12 server.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Petr1t/jellyfin_seerr_loading_screen/releases/download/v0.3.0/Jellyfin.Plugin.SeerrLoadingScreen-0.3.0.zip",
+        "checksum": "b2c2518871166fec4b3176c32538e7c9",
+        "timestamp": "2026-09-10T07:02:59.0000000Z"
+      },
+      {
         "version": "0.2.2.0",
         "changelog": "Robustness pass: Channel listing now bounded by a 5s timeout against a hung daemon, smarter cache-key (state-hash, not timestamp) so refreshes only happen when items change. Daemon refactored: shared httpx client, ~200 LOC reduction. Verified end-to-end on Jellyfin 10.11.8.",
         "targetAbi": "10.11.0.0",

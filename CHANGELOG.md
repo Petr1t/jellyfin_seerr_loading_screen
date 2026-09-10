@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Added
 - Second channel (default **🔍 Leider nicht gefunden**, configurable via `NotFoundLibraryName`) showing only `not_found` items; **📥 Coming Soon** filters them out and keeps `searching`.
 
+## [0.3.0] — 2026-09-10
+
+### Plugin
+
+#### Changed
+- **Retargeted to Jellyfin 12** (.NET 10, `targetAbi` `12.0.0.0`): `TargetFramework` bumped to `net10.0`, `Jellyfin.Controller`/`Jellyfin.Model` package refs bumped to `12.0.0`, plugin `AssemblyVersion`/`FileVersion` bumped to `0.3.0.0`. No source changes were needed — `IChannel`, `IHasCacheKey`, `IPluginServiceRegistrator`, `IHasWebPages`, `BasePlugin<T>`, and the channel/config model types used by this plugin are unchanged in the Jellyfin 12 API surface; build is clean with 0 warnings/0 errors. Old `10.11.0.0` build kept in `manifest.json` alongside the new entry. Not yet smoke-tested against a running Jellyfin 12 server.
+
 ## [0.2.4] — 2026-05-16
 
 ### Plugin
